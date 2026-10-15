@@ -1,0 +1,10 @@
+# ISOs y discos de VMs — NUNCA al repo (son enormes)
+*.iso
+*.vdi
+*.vmdk
+*.vhd
+*.ova
+VMs/
+# basura del SO
+.DS_Store
+Thumbs.db
