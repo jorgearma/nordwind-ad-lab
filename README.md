@@ -1,41 +1,41 @@
 # Nordwind Logistics — Active Directory Lab
 
-Laboratorio de **Active Directory** construido desde cero, documentando el proceso de
-principio a fin: desde el diseño de la infraestructura hasta la explotación ofensiva.
+An **Active Directory** lab built from scratch, documenting the whole process end to end:
+from infrastructure design to offensive exploitation.
 
-Proyecto de aprendizaje y portfolio — **Jorge Escobar** (preparación OSCP / CRTP).
+Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 ---
 
-## Escenario
+## Scenario
 
-**Nordwind Logistics** — empresa ficticia de logística. Entorno de dominio realista
-(`nordwind.local`) con su estructura de OUs, usuarios, grupos (modelo **AGDLP**) y GPOs.
+**Nordwind Logistics** — a fictional logistics company. A realistic domain environment
+(`nordwind.local`) with its OU structure, users, groups (**AGDLP** model) and GPOs.
 
-## Las 3 fases
+## The 3 phases
 
-| Fase | Qué | Estado |
-|------|-----|--------|
-| 1. **Construir** | Montar el AD sano (DC + cliente), entendiendo cada paso | 🟡 En curso |
-| 2. **Sabotear** | Introducir deliberadamente malas configuraciones (SPN, AS-REP, ACLs) | ⬜ Pendiente |
-| 3. **Atacar** | Enumeración y explotación (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ⬜ Pendiente |
+| Phase | What | Status |
+|-------|------|--------|
+| 1. **Build** | Stand up a clean AD (DC + client), understanding every step | 🟡 In progress |
+| 2. **Sabotage** | Deliberately introduce misconfigurations (SPN, AS-REP, ACLs) | ⬜ Pending |
+| 3. **Attack** | Enumeration and exploitation (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ⬜ Pending |
 
 ## Stack
 
-- **Hipervisor:** VirtualBox 7 (red interna aislada `NordwindLAN`)
+- **Hypervisor:** VirtualBox 7 (isolated internal network `NordwindLAN`)
 - **DC01:** Windows Server 2022 Standard (AD DS, DNS, DHCP) — `192.168.10.10`
-- **CL01:** Windows 11 Enterprise — cliente de dominio
-- **Automatización:** PowerShell 5.1
+- **CL01:** Windows 11 Enterprise — domain client
+- **Automation:** PowerShell 5.1
 
-## Documentación
+## Documentation
 
-- [`docs/build-log.md`](docs/build-log.md) — bitácora del montaje, paso a paso
+- [`docs/build-log.md`](docs/build-log.md) — step-by-step build log
 
 ---
 
-## Créditos
+## Credits
 
-La base de infraestructura (diseño de la empresa ficticia, estructura AGDLP y scripts
-de aprovisionamiento) está **adaptada del lab de Maciej Stawowy**
+The infrastructure base (fictional company design, AGDLP structure and provisioning
+scripts) is **adapted from Maciej Stawowy's lab**
 ([maciej-stawowy/active-directory-lab](https://github.com/maciej-stawowy/active-directory-lab),
-licencia MIT). La capa ofensiva (fases 2 y 3) y la documentación de ataque son propias.
+MIT license). The offensive layer (phases 2 and 3) and the attack documentation are my own.
