@@ -16,7 +16,7 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 | Phase | What | Status |
 |-------|------|--------|
-| 1. **Build** | Stand up a clean AD (DC + client), understanding every step | 🟡 In progress |
+| 1. **Build** | Stand up a clean AD (DC + client), understanding every step | ✅ Done |
 | 2. **Sabotage** | Deliberately introduce misconfigurations (SPN, AS-REP, ACLs) | ⬜ Pending |
 | 3. **Attack** | Enumeration and exploitation (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ⬜ Pending |
 
@@ -30,6 +30,10 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 ## Documentation
 
 - [`docs/build-log.md`](docs/build-log.md) — step-by-step build log
+- [`diagrams/`](diagrams/) — interactive HTML visuals of the domain (open in a browser)
+
+> The interactive visuals are written in Spanish (personal study material); an English
+> translation is pending.
 
 ---
 
