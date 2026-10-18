@@ -17,8 +17,12 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 | Phase | What | Status |
 |-------|------|--------|
 | 1. **Build** | Stand up a clean AD (DC + client), understanding every step | ✅ Done |
-| 2. **Sabotage** | Deliberately introduce misconfigurations (SPN, AS-REP, ACLs) | ⬜ Pending |
-| 3. **Attack** | Enumeration and exploitation (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ⬜ Pending |
+| 2. **Sabotage** | Deliberately introduce misconfigurations (SPN, AS-REP, ACLs) | ✅ Done |
+| 3. **Attack** | Enumeration and exploitation (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ✅ Done |
+
+> **Outcome:** starting from **zero credentials**, the attack chain reaches **Domain Admin**
+> and a full **DCSync** (krbtgt + Administrator), using only manual, OSCP-friendly tooling —
+> no Metasploit. The whole path is written up in [`docs/phase3-attack.md`](docs/phase3-attack.md).
 
 ## Stack
 
@@ -29,7 +33,9 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 ## Documentation
 
-- [`docs/build-log.md`](docs/build-log.md) — step-by-step build log
+- [`docs/build-log.md`](docs/build-log.md) — Phase 1: step-by-step build log
+- [`docs/phase2-sabotage.md`](docs/phase2-sabotage.md) — Phase 2: the planted misconfigurations (+ reproducible scripts in [`scripts/`](scripts/))
+- [`docs/phase3-attack.md`](docs/phase3-attack.md) — Phase 3: full attack chain, zero credentials → Domain Admin → DCSync
 - [`diagrams/`](diagrams/) — interactive HTML visuals of the domain (open in a browser)
 
 > The interactive visuals are written in Spanish (personal study material); an English

@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 Jorge Escobar
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+ATTRIBUTION
+
+The infrastructure base of this lab (the fictional company design, the AGDLP
+structure and parts of the provisioning approach) is adapted from:
+
+    Maciej Stawowy — active-directory-lab
+    https://github.com/maciej-stawowy/active-directory-lab
+    Licensed under the MIT License, Copyright (c) Maciej Stawowy.
+
+That original work is used and adapted under the terms of its MIT License. The
+offensive layer (Phases 2 and 3: the planted misconfigurations, the attack
+chain and all attack documentation) is original work by Jorge Escobar.
