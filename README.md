@@ -34,7 +34,8 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 ## Documentation
 
 - [`docs/build-log.md`](docs/build-log.md) — Phase 1: step-by-step build log
-- [`docs/phase2-sabotage.md`](docs/phase2-sabotage.md) — Phase 2: the planted misconfigurations (+ reproducible scripts in [`scripts/`](scripts/))
+- [`scripts/build/`](scripts/build/) — provisioning scripts to stand up the clean domain (+ `reset-to-clean.ps1` to re-arm the lab after an attack). See its [README](scripts/build/README.md) for run order and rationale.
+- [`docs/phase2-sabotage.md`](docs/phase2-sabotage.md) — Phase 2: the planted misconfigurations (+ sabotage scripts in [`scripts/`](scripts/))
 - [`docs/phase3-attack.md`](docs/phase3-attack.md) — Phase 3: full attack chain, zero credentials → Domain Admin → DCSync
 - [`diagrams/`](diagrams/) — interactive HTML visuals of the domain (open in a browser)
 
@@ -45,7 +46,12 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 ## Credits
 
-The infrastructure base (fictional company design, AGDLP structure and provisioning
-scripts) is **adapted from Maciej Stawowy's lab**
+The infrastructure base — fictional company design, AGDLP structure and the
+provisioning scripts in [`scripts/build/`](scripts/build/) (`01`–`05` + `employees.csv`) —
+is from **Maciej Stawowy's lab**
 ([maciej-stawowy/active-directory-lab](https://github.com/maciej-stawowy/active-directory-lab),
-MIT license). The offensive layer (phases 2 and 3) and the attack documentation are my own.
+MIT license), vendored unmodified with attribution preserved.
+
+The offensive layer is my own: the Phase 2 sabotage scripts, the Phase 3 attack chain
+and documentation, and `scripts/build/reset-to-clean.ps1` (re-arming the lab after an
+attack — no upstream equivalent).
