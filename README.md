@@ -37,6 +37,7 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 - [`scripts/build/`](scripts/build/) — provisioning scripts to stand up the clean domain (+ `reset-to-clean.ps1` to re-arm the lab after an attack). See its [README](scripts/build/README.md) for run order and rationale.
 - [`docs/phase2-sabotage.md`](docs/phase2-sabotage.md) — Phase 2: the planted misconfigurations (+ sabotage scripts in [`scripts/`](scripts/))
 - [`docs/phase3-attack.md`](docs/phase3-attack.md) — Phase 3: full attack chain, zero credentials → Domain Admin → DCSync
+- [`docs/ad-from-the-attacker-side.md`](docs/ad-from-the-attacker-side.md) — **learning walkthrough**: understand AD from the pentest side (build → break → understand), built on this lab
 - [`diagrams/`](diagrams/) — interactive HTML visuals of the domain (open in a browser)
 
 > The interactive visuals are written in Spanish (personal study material); an English
