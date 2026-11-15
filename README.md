@@ -7,6 +7,15 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 ---
 
+## Live attack replay
+
+**[▶ Watch the attack replay](https://jorgearma.github.io/nordwind-ad-lab/)** — an animated,
+step-by-step reproduction of the Phase 3 chain (domain graph + terminal + Kerberos message
+breakdown), with *why it works*, *how to fix it* and *how to detect it* for every step.
+It is a replay of the real attack on this lab, not a live AD in the browser; terminal output
+is reconstructed from the writeup with hashes redacted. Source: [`index.html`](index.html)
+(single file, no dependencies; content in Spanish).
+
 ## Scenario
 
 **Nordwind Logistics** — a fictional logistics company. A realistic domain environment
