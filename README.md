@@ -16,6 +16,13 @@ It is a replay of the real attack on this lab, not a live AD in the browser; ter
 is reconstructed from the writeup with hashes redacted. Source: [`index.html`](index.html)
 (single file, no dependencies; content in Spanish).
 
+**[▶ How AD works inside](https://jorgearma.github.io/nordwind-ad-lab/fundamentos.html)** — the
+companion page: the same engine, but nobody attacks anything. It follows one user from logon to
+opening a share and breaks down Kerberos (KDC, AS/TGS/AP exchanges, TGT, service tickets, PAC),
+AGDLP, the access check, ACL inheritance and AdminSDHolder/SDProp, linking each mechanism to the
+attack step that abuses it. Terminal output is reconstructed and `FS01` is illustrative (the
+`DL_FS01_*` groups exist in the lab, the server does not). Source: [`fundamentos.html`](fundamentos.html).
+
 ## Scenario
 
 **Nordwind Logistics** — a fictional logistics company. A realistic domain environment

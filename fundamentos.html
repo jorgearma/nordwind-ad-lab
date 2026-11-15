@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nordwind AD Lab — cómo funciona Active Directory: Kerberos, AGDLP y permisos</title>
+<meta name="description" content="Explicación animada, paso a paso, de cómo funciona Active Directory en un día normal: KDC, TGT, tickets de servicio, PAC, AGDLP, ACL, herencia de permisos y AdminSDHolder, enlazado con el ataque que nace de cada mecanismo.">
+<meta property="og:title" content="Nordwind AD Lab — cómo funciona Active Directory por dentro">
+<meta property="og:description" content="Kerberos, AGDLP y propagación de permisos explicados siguiendo a un usuario desde que inicia sesión hasta que abre una carpeta.">
+<style>
+:root{
+  --bg:#080c12; --panel:#0e141e; --panel2:#121a27; --line:#1d2838; --line2:#2b3a50;
+  --fg:#d9e1ee; --muted:#7f8da3; --dim:#56657c;
+  --red:#ff4d5e; --red-soft:#3a0f17; --amber:#ffb454; --green:#3ddc97; --blue:#5ab0ff; --violet:#b79cff;
+  --mono:ui-monospace,"JetBrains Mono","Fira Code","Cascadia Code",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);
+  background-image:radial-gradient(1200px 500px at 15% -10%,rgba(90,176,255,.07),transparent 60%),radial-gradient(900px 500px at 100% 0,rgba(255,77,94,.06),transparent 60%)}
+.wrap{max-width:1360px;margin:0 auto;padding:12px 16px 40px}
+a{color:var(--blue)}
+code{font-family:var(--mono);font-size:.88em;background:#1a2433;border:1px solid var(--line);border-radius:4px;padding:0 .3em;color:#e8eefb}
+
+button{font:inherit;color:inherit;cursor:pointer}
+
+/* cabecera compacta (una línea) */
+.topbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 14px;margin-bottom:10px}
+.topbar h1{margin:0;font-size:clamp(1.02rem,2vw,1.28rem);font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.topbar h1 em{font-style:normal;color:var(--red)}
+.tb-sub{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .5rem;color:var(--muted);font-size:.78rem}
+.tb-sub .tag{display:inline-flex;align-items:center;gap:.35rem;color:var(--amber);font:600 .72rem var(--mono)}
+.tb-sub .tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.tb-sub a{color:var(--blue);text-decoration:none}.tb-sub a:hover{text-decoration:underline}
+.tb-sub .sep{color:var(--line2)}
+.steps{display:flex;flex-wrap:wrap;gap:3px;flex:1;min-width:0}
+.stepsbar{padding:.5rem .55rem}
+.chip{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center;gap:.35rem;cursor:pointer;
+  background:linear-gradient(#1b2637,#141d2b);border:1px solid #34445c;border-bottom-color:#0a0f17;border-radius:8px;
+  box-shadow:0 2px 0 #05080d,inset 0 1px 0 rgba(255,255,255,.07);padding:.38rem .4rem;font:700 .7rem var(--mono);color:#c3cee0;white-space:nowrap;
+  transition:transform .08s,box-shadow .08s,border-color .15s,color .15s}
+.chip b{display:inline-grid;place-items:center;width:1.35em;height:1.35em;border-radius:50%;background:#2b394f;color:#dbe4f2;font-size:.92em}
+.chip:hover{border-color:var(--blue);color:#fff;transform:translateY(-1px);box-shadow:0 3px 0 #05080d,inset 0 1px 0 rgba(255,255,255,.1)}
+.chip:active{transform:translateY(2px);box-shadow:0 0 0 #05080d}
+.chip:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.chip.done{color:#ffb3bb;border-color:rgba(255,77,94,.45);background:linear-gradient(#2c1219,#200d13)}
+.chip.done b{background:var(--red);color:#fff}
+.chip.cur{color:#fff;border-color:var(--red);background:linear-gradient(#ff5d6c,#d93545);box-shadow:0 2px 0 #7a1622,0 0 14px rgba(255,77,94,.45)}
+.chip.cur b{background:#fff;color:#c92a3a}
+kbd{border:1px solid var(--line2);border-radius:4px;padding:0 .3em;color:var(--muted);font:.85em var(--mono)}
+
+/* escenario */
+.stage{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px}
+@media (max-width:980px){.stage{grid-template-columns:1fr}.card-h{flex-wrap:wrap}}
+.gwrap{overflow-x:auto;scrollbar-width:thin}
+@media (max-width:700px){svg#g{min-width:720px;max-height:none}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.card-h{display:flex;align-items:center;gap:.6rem;padding:.5rem .8rem;border-bottom:1px solid var(--line);font:600 .74rem var(--mono);color:var(--muted);letter-spacing:.03em;min-height:38px}
+.card-h .sp{flex:1}.card-h span{white-space:nowrap}#termtitle{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.loot{display:flex;flex-wrap:wrap;gap:4px}
+.lootbar{display:flex;align-items:center;gap:.7rem;padding:.4rem .8rem;border-top:1px solid var(--line);font:600 .68rem var(--mono);color:var(--dim);letter-spacing:.04em;min-height:32px}
+.chip.nextup{border-color:var(--amber);color:var(--amber);animation:nx 1.4s ease-in-out infinite}.chip.nextup b{background:var(--amber);color:#201400}.chip.nextup::after{content:'▸';margin-left:.1rem}
+@keyframes nx{50%{box-shadow:0 2px 0 #05080d,0 0 0 4px rgba(255,180,84,.28)}}
+.loot span{font:600 .68rem var(--mono);color:#ffb3bb;background:var(--red-soft);border:1px solid rgba(255,77,94,.4);border-radius:5px;padding:0 .4rem;animation:pop .4s}
+.loot em{font-style:normal;color:var(--dim)}
+@keyframes pop{from{transform:scale(.6);opacity:0}}
+
+/* grafo */
+svg#g{display:block;width:100%;height:auto;max-height:min(62vh,600px);background:
+  linear-gradient(var(--panel),var(--panel)) padding-box}
+.grid line{stroke:#111a27;stroke-width:1}
+.boundary{fill:rgba(90,176,255,.025);stroke:#2c4466;stroke-width:1.5;stroke-dasharray:7 6;transition:stroke .8s,fill .8s}
+.blabel{fill:#5f7fa8;font:700 12px var(--mono);letter-spacing:.06em;transition:fill .8s}
+.ou{fill:rgba(255,255,255,.015);stroke:#243246;stroke-width:1;transition:stroke .8s}
+.oulabel{fill:var(--dim);font:600 11.5px var(--mono)}
+.net{stroke:#22324a;stroke-width:1.5;stroke-dasharray:2 5}
+.n .shape{fill:#131b28;stroke:#3b4b63;stroke-width:1.6;transition:fill .5s,stroke .5s}
+.n .ico{stroke:#8797ae;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:stroke .5s}
+.n .glyph{fill:#8797ae;font:700 13px var(--mono);text-anchor:middle}
+.n .lb{fill:#c7d2e2;font:700 12.5px var(--mono);text-anchor:middle;transition:fill .5s}
+.n .sb{fill:#8795ab;font:600 11px var(--mono);text-anchor:middle;transition:fill .5s}
+.n.atk .shape{stroke:var(--violet);fill:#191430}.n.atk .glyph{fill:var(--violet)}.n.atk .lb{fill:#d9ccff}
+.n.target .shape{stroke:var(--amber);animation:pulse .9s ease-in-out infinite}
+.n.target .sb{fill:var(--amber)}
+.n.owned .shape{stroke:var(--red);fill:var(--red-soft)}
+.n.owned .ico{stroke:#ff9aa5}.n.owned .lb{fill:#ffb3bb}.n.owned .sb{fill:var(--red)}
+.n.owned{filter:drop-shadow(0 0 7px rgba(255,77,94,.55))}
+.n.shield .shape{stroke:var(--blue);fill:#0f2238}.n.shield .sb{fill:var(--blue)}.n.shield .ico{stroke:#9fd0ff}
+.n.crown .shape{stroke-width:2.6}
+@keyframes pulse{0%,100%{stroke-width:1.6;stroke-opacity:1}50%{stroke-width:4.5;stroke-opacity:.55}}
+.o{fill:#131b28;stroke:#34435a;stroke-width:1.3;transition:stroke .4s,fill .4s}
+.o.ask{stroke:var(--amber)}.o.safe{stroke:var(--green);fill:#0f2a22}
+svg.pwned .o{stroke:var(--red);fill:var(--red-soft)}
+svg.pwned .boundary{stroke:var(--red);fill:rgba(255,77,94,.05)}
+svg.pwned .blabel{fill:var(--red)}
+svg.pwned .ou{stroke:rgba(255,77,94,.45)}
+svg.pwned .n:not(.atk) .shape{stroke:var(--red);fill:var(--red-soft)}
+svg.pwned .n:not(.atk) .ico{stroke:#ff9aa5}
+svg.pwned .n:not(.atk) .lb{fill:#ffb3bb}
+.e{color:var(--amber)}
+.e line{stroke:currentColor;stroke-width:2;stroke-dasharray:5 4}
+.e polygon{fill:currentColor}
+.e text{fill:currentColor;font:700 12px var(--mono);paint-order:stroke;stroke:var(--panel);stroke-width:4px}
+.e.red{color:var(--red)}.e.red line{stroke-dasharray:none}
+.e.dead{color:#6b7a91}
+.e{animation:fade .5s}
+@keyframes fade{from{opacity:0}}
+.beam{stroke-width:2;stroke-dasharray:4 4;animation:beam 1.6s forwards}
+@keyframes beam{0%{opacity:0}20%{opacity:1}100%{opacity:0}}
+.logh{fill:var(--muted);font:700 11px var(--mono);text-anchor:middle;letter-spacing:.04em}
+.pk rect{rx:6;stroke-width:1.2}
+.pk text{font:700 11.5px var(--mono);text-anchor:middle;dominant-baseline:central}
+.pk.req rect{fill:#10233a;stroke:var(--blue)}.pk.req text{fill:#b9dcff}
+.pk.hit rect{fill:#3a0f17;stroke:var(--red)}.pk.hit text{fill:#ffc2c8}
+.pk.no rect{fill:#161d29;stroke:#4a5a72}.pk.no text{fill:#93a1b7}
+.pk.deny rect{fill:#0f2238;stroke:var(--blue)}.pk.deny text{fill:#fff}
+#sdprop{opacity:0;transition:opacity .5s}
+#sdprop.on{opacity:1}
+#sdprop text{fill:var(--blue);font:600 10px var(--mono)}
+#sdprop .ring{fill:none;stroke:var(--blue);stroke-width:2;stroke-dasharray:22 12;transform-box:fill-box;transform-origin:center;animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#banner{opacity:0;transition:opacity .8s}
+svg.pwned #banner{opacity:1}
+#banner rect{fill:var(--red)}
+#banner text{fill:#fff;font:800 12px var(--mono);letter-spacing:.08em;text-anchor:middle}
+
+/* elementos pulsables del grafo + ficha explicativa */
+.click{cursor:pointer}
+.n.click .shape{transition:stroke .5s,fill .5s,filter .15s}
+.n.click:hover{filter:drop-shadow(0 0 6px rgba(90,176,255,.5))}
+.n.click:hover .shape,.n.click:focus-visible .shape{stroke:#fff}
+.ou.click,.boundary.click{transition:stroke .3s,fill .3s}
+.ou.click:hover{stroke:var(--blue);fill:rgba(90,176,255,.05)}
+.boundary.click:hover{stroke:var(--blue)}
+.o.click{cursor:pointer}.o.click:hover{stroke:#fff}
+svg [tabindex]:focus{outline:none}
+svg [tabindex]:focus-visible .shape{stroke:var(--blue)}
+.hint{margin-left:auto;color:var(--blue);letter-spacing:0;font-weight:600}
+@media (max-width:620px){.hint{display:none}}
+.card.rel{position:relative}
+.ficha{position:absolute;inset:0;z-index:6;background:var(--panel);display:flex;flex-direction:column;animation:fade .2s}
+.ficha[hidden]{display:none}
+.ficha-h{display:flex;align-items:flex-start;gap:.7rem;padding:.8rem .9rem .7rem;border-bottom:1px solid var(--line)}
+.ficha-h>div{flex:1;min-width:0}
+.f-type{font:700 .66rem var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--blue)}
+.f-title{margin:.12rem 0 0;font-size:1.15rem;line-height:1.2;letter-spacing:-.01em;overflow-wrap:anywhere}
+.f-dn{font:.69rem var(--mono);color:var(--dim);margin-top:.25rem;overflow-wrap:anywhere}
+.f-close{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;width:34px;height:34px;font:700 1rem var(--sans);color:var(--fg);flex:none;cursor:pointer}
+.f-close:hover{border-color:var(--red);color:var(--red)}
+.f-body{flex:1;overflow-y:auto;padding:.2rem .9rem .9rem;scrollbar-width:thin}
+.f-body h4{margin:.95rem 0 .25rem;font:700 .7rem var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--amber)}
+.f-body p{margin:0;font-size:.9rem;line-height:1.55;color:#c6d0df}
+.f-foot{padding:.5rem .9rem;border-top:1px solid var(--line);font-size:.75rem;color:var(--dim)}
+
+/* panel de protocolo */
+.wirecard{margin-top:12px}
+.wire{padding:.7rem .8rem .8rem;min-height:118px;background:#0b111a;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:10px 18px}
+.wmsg{min-width:0;animation:fade .4s}
+.wmsg+.wmsg{border-left:1px solid var(--line);padding-left:18px}
+@media (max-width:760px){.wmsg+.wmsg{border-left:0;padding-left:0;border-top:1px solid var(--line);padding-top:10px}}
+.wire-t{font:700 .72rem var(--mono);color:var(--blue);letter-spacing:.05em;text-transform:uppercase;margin-bottom:.4rem}
+.wire-t.idle{color:var(--dim)}
+.parts{display:flex;gap:5px;flex-wrap:wrap}
+.part{flex:1 1 150px;border:1px solid var(--line2);border-radius:7px;padding:.3rem .5rem;background:var(--panel2);font:.72rem var(--mono);min-width:0;animation:fade .4s}
+.part b{display:block;color:var(--fg);font-size:.74rem;overflow-wrap:anywhere}
+.part span{color:var(--muted);overflow-wrap:anywhere}
+.part.bad{border-color:var(--red);background:var(--red-soft)}.part.bad span{color:#ffb3bb}
+.part.warn{border-color:var(--amber);background:rgba(255,180,84,.08)}.part.warn span{color:var(--amber)}
+.wire-n{color:var(--muted);font-size:.8rem;margin-top:.45rem}.wire-n.idle{margin:0;color:var(--dim)}
+
+/* terminal */
+.term{flex:1;min-height:280px;max-height:640px;overflow-y:auto;padding:.7rem .85rem;font:12.5px/1.55 var(--mono);background:#070a0f;scrollbar-width:thin;position:relative}
+.dots{display:flex;gap:5px}.dots i{width:10px;height:10px;border-radius:50%;display:block;background:#2a3548}
+.dots i:first-child{background:#ff5f57}.dots i:nth-child(2){background:#febc2e}.dots i:nth-child(3){background:#28c840}
+.ln{white-space:pre-wrap;overflow-wrap:anywhere;color:#aab6c8}
+.ln.cmd{color:#eef3fb;margin-top:.55rem}
+.ln.cmd:first-child{margin-top:0}
+.ps{color:var(--green);font-weight:700}.ps.dc{color:var(--blue)}.ps.bh{color:var(--violet)}
+.ln.ok{color:var(--green)}.ln.err{color:var(--red);font-weight:700}.ln.hl{color:var(--amber)}.ln.pw{color:#ff9aa5;font-weight:700}.ln.dim{color:var(--dim)}
+.ln.cm{color:#6d8fb8;font-style:italic;margin-top:.45rem}
+.typing::after{content:"▋";color:var(--green);animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.start{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:1rem;background:#070a0f}
+.start button{background:var(--red);border:0;color:#fff;font:700 1rem var(--mono);border-radius:10px;padding:.8rem 1.4rem;box-shadow:0 0 0 0 rgba(255,77,94,.6);animation:ring 1.8s infinite}
+.start p{color:var(--muted);font-size:.8rem;margin:.9rem 0 0;font-family:var(--sans)}
+@keyframes ring{70%{box-shadow:0 0 0 16px rgba(255,77,94,0)}100%{box-shadow:0 0 0 0 rgba(255,77,94,0)}}
+
+/* explicación */
+.info{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem 1.1rem}
+.info-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .8rem}
+.num{font:800 .78rem var(--mono);color:var(--red);letter-spacing:.06em}
+h2{margin:0;font-size:1.25rem;letter-spacing:-.01em}
+.need{font:600 .72rem var(--mono);color:var(--violet);border:1px solid rgba(183,156,255,.35);border-radius:999px;padding:.1rem .6rem}
+.sum{margin:.5rem 0 .9rem;color:#b8c3d4;max-width:95ch}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:860px){.cards{grid-template-columns:1fr}}
+.c{border:1px solid var(--line);border-radius:10px;padding:.7rem .85rem;background:var(--panel2);border-top:3px solid var(--line2)}
+.c h3{margin:0 0 .3rem;font:700 .72rem var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.c p{margin:0;font-size:.88rem;color:#c3cddc}
+.c.why{border-top-color:var(--red)}.c.why h3{color:var(--red)}
+.c.fix{border-top-color:var(--green)}.c.fix h3{color:var(--green)}
+.c.det{border-top-color:var(--blue)}.c.det h3{color:var(--blue)}
+footer{margin-top:16px;color:var(--dim);font-size:.8rem;display:flex;flex-wrap:wrap;gap:.3rem 1.2rem;justify-content:space-between}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ===== ajustes propios de fundamentos.html (acento azul: aquí no se ataca, se explica) ===== */
+body{background-image:radial-gradient(1200px 500px at 15% -10%,rgba(90,176,255,.09),transparent 60%),radial-gradient(900px 500px at 100% 0,rgba(61,220,151,.05),transparent 60%)}
+.topbar h1 em{color:var(--blue)}
+.chip.done{color:#b9dcff;border-color:rgba(90,176,255,.45);background:linear-gradient(#12233a,#0d1a2c)}
+.chip.done b{background:var(--blue);color:#04121f}
+.chip.cur{color:#04121f;border-color:var(--blue);background:linear-gradient(#7cc1ff,#3d92e0);box-shadow:0 2px 0 #123a63,0 0 14px rgba(90,176,255,.45)}
+.chip.cur b{background:#fff;color:#1c6fc0}
+.start button{background:var(--blue);color:#04121f;animation:ring2 1.8s infinite}
+@keyframes ring2{0%{box-shadow:0 0 0 0 rgba(90,176,255,.6)}70%{box-shadow:0 0 0 16px rgba(90,176,255,0)}100%{box-shadow:0 0 0 0 rgba(90,176,255,0)}}
+.num{color:var(--blue)}
+.c.why{border-top-color:var(--blue)}.c.why h3{color:var(--blue)}
+.c.det{border-top-color:var(--red)}.c.det h3{color:var(--red)}
+.c p a{color:#ff9aa5}
+svg#g{max-height:min(64vh,620px)}
+
+/* estados de nodo */
+.n.ok .shape{stroke:var(--green);fill:#0f2a22}.n.ok .ico{stroke:#8ff0c8}.n.ok .glyph{fill:#8ff0c8}.n.ok .sb{fill:var(--green)}.n.ok .lb{fill:#c9f7e3}
+.n.key .shape{stroke:var(--violet);fill:#191430}.n.key .ico{stroke:#d9ccff}.n.key .sb{fill:var(--violet)}
+.n.svc .glyph{fill:#9fd0ff;font-size:14px}.n.svc .shape{stroke:#3f6a9a}
+.n.shield .glyph{fill:#9fd0ff}
+.n.target .glyph{fill:var(--amber)}
+.e.ok{color:var(--green)}.e.ok line{stroke-dasharray:none}
+.e.blue{color:var(--blue)}
+.pk.ok rect{fill:#0f2a22;stroke:var(--green)}.pk.ok text{fill:#c9f7e3}
+.zone{fill:rgba(90,176,255,.035);stroke:#2c4466;stroke-width:1.5}
+.zone.click:hover{stroke:var(--blue)}
+.zlabel{fill:#5f7fa8;font:700 11.5px var(--mono);letter-spacing:.05em}
+.tagnote{fill:var(--amber);font:600 10px var(--mono)}
+
+/* caché de anna */
+.loot span{color:#c9f7e3;background:#0f2a22;border-color:rgba(61,220,151,.4)}
+.loot span.k{color:#ffd9a3;background:rgba(255,180,84,.1);border-color:rgba(255,180,84,.45)}
+.loot span.s{color:#b9dcff;background:#10233a;border-color:rgba(90,176,255,.45)}
+
+/* glosario */
+.gloss{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:.4rem .8rem;border-top:1px solid var(--line)}
+.gloss>span{font:600 .68rem var(--mono);color:var(--dim);letter-spacing:.04em;margin-right:.3rem}
+.gloss button{font:600 .68rem var(--mono);color:#b9dcff;background:#10233a;border:1px solid rgba(90,176,255,.35);border-radius:999px;padding:.08rem .55rem}
+.gloss button:hover,.gloss button:focus-visible{border-color:var(--blue);color:#fff;outline:none}
+
+/* de quién es la clave que cifra cada parte */
+.part.kU{border-left:4px solid var(--amber)}
+.part.kK{border-left:4px solid var(--violet)}
+.part.kS{border-left:4px solid var(--green)}
+.part.kT{border-left:4px solid var(--blue)}
+.legend{display:flex;flex-wrap:wrap;gap:.2rem .8rem;white-space:normal!important}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:.3rem;vertical-align:-1px}
+.wirecard .card-h{flex-wrap:wrap}
+
+/* autoevaluación */
+.quiz h2{font-size:1.05rem}
+.quiz>p{margin:.3rem 0 .7rem;color:var(--muted);font-size:.86rem}
+.qgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media (max-width:860px){.qgrid{grid-template-columns:1fr}}
+.quiz details{border:1px solid var(--line);border-radius:10px;background:var(--panel2);padding:.55rem .8rem}
+.quiz summary{cursor:pointer;font-weight:600;font-size:.9rem}
+.quiz summary:hover{color:#fff}
+.quiz details[open] summary{color:var(--amber)}
+.quiz details p{margin:.5rem 0 0;font-size:.88rem;color:#c3cddc}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="topbar">
+  <h1>Nordwind AD Lab — cómo funciona <em>Active Directory</em> por dentro: <em>Kerberos</em>, <em>AGDLP</em> y <em>permisos</em></h1>
+  <div class="tb-sub">
+    <span class="tag">Un día normal en el dominio · nadie ataca nada</span>
+    <span class="sep">·</span>
+    <span>Sigue a anna.nowak desde que escribe su contraseña hasta que abre una carpeta, y mira qué piezas del dominio intervienen. Cada paso enlaza con el ataque que nace de él.</span>
+    <span class="sep">·</span>
+    <a href="index.html">Ver el ataque (replay)</a>
+    <a href="https://github.com/jorgearma/nordwind-ad-lab">Repositorio</a>
+  </div>
+</header>
+
+<div class="stage">
+  <section class="card rel">
+    <div class="card-h stepsbar"><div class="steps" id="steps" role="tablist" aria-label="Pasos de la explicación"></div></div>
+    <div class="gwrap"><svg id="g" viewBox="0 0 900 566" role="img" aria-label="Esquema del dominio nordwind.local: el puesto de anna, el KDC, el directorio y el servidor de ficheros"></svg></div>
+    <div class="gloss" id="gloss"><span>GLOSARIO</span></div>
+    <div class="lootbar"><span>CACHÉ DE ANNA EN CL01</span><div class="loot" id="loot"><em>vacía: aún no ha iniciado sesión</em></div><span class="hint">Pulsa cualquier pieza del esquema</span></div>
+    <div class="ficha" id="ficha" hidden role="dialog" aria-modal="true" aria-labelledby="f-title">
+      <div class="ficha-h">
+        <div><div class="f-type" id="f-type"></div><h2 class="f-title" id="f-title"></h2><div class="f-dn" id="f-dn"></div></div>
+        <button class="f-close" id="f-close" aria-label="Cerrar ficha" title="Cerrar (Esc)">✕</button>
+      </div>
+      <div class="f-body" id="f-body"></div>
+      <div class="f-foot">La reproducción queda en pausa mientras lees. Cierra con ✕ o <kbd>Esc</kbd>.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div class="dots"><i></i><i></i><i></i></div><span id="termtitle">CL01 — PowerShell (anna.nowak)</span><span class="sp"></span><span class="nw">salida reconstruida · SIDs abreviados</span></div>
+    <div class="term" id="term">
+      <div class="start" id="start"><div><button id="startbtn">▶ Empezar por el paso 1</button><p>Avanza a tu ritmo con los pasos 1–10 de arriba o con <kbd>→</kbd> / <kbd>←</kbd>. Cada paso se queda en pantalla hasta que pulses el siguiente. Mientras una escena se escribe, <kbd>→</kbd> o volver a pulsar el paso la completa de golpe; <kbd>Espacio</kbd> pausa.</p></div></div>
+    </div>
+  </section>
+</div>
+
+<section class="card wirecard"><div class="card-h"><span>QUÉ VIAJA POR LA RED · Y QUIÉN PUEDE ABRIRLO</span><span class="sp"></span>
+  <span class="legend"><span><i style="background:var(--amber)"></i>clave de anna</span><span><i style="background:var(--violet)"></i>clave de krbtgt</span><span><i style="background:var(--green)"></i>clave de FS01$</span><span><i style="background:var(--blue)"></i>clave de sesión</span></span></div>
+  <div class="wire" id="wire"></div></section>
+
+<section class="info" id="info">
+  <div class="info-h"><span class="num" id="i-num"></span><h2 id="i-title"></h2><span class="need" id="i-need"></span></div>
+  <p class="sum" id="i-sum"></p>
+  <div class="cards">
+    <div class="c why"><h3 id="c1t"></h3><p id="c1"></p></div>
+    <div class="c fix"><h3 id="c2t"></h3><p id="c2"></p></div>
+    <div class="c det"><h3 id="c3t"></h3><p id="c3"></p></div>
+  </div>
+</section>
+
+<section class="info quiz">
+  <h2>Comprueba que lo has entendido</h2>
+  <p>Piensa la respuesta antes de abrirla. Si puedes contestar las seis sin mirar, entiendes AD mejor que la mayoría de quienes lo atacan con herramientas.</p>
+  <div class="qgrid">
+    <details><summary>1 · ¿Por qué anna no puede editar su TGT y meterse en Domain Admins?</summary><p>Porque el TGT va cifrado con la clave de <code>krbtgt</code>, que anna no tiene: no puede ni leerlo. Y aunque pudiera, el PAC lleva una firma hecha con esa misma clave. Solo quien roba la clave de krbtgt puede fabricar un TGT a medida: eso es un Golden Ticket.</p></details>
+    <details><summary>2 · Añades a anna a un grupo y sigue sin poder entrar en la carpeta. ¿Por qué?</summary><p>Sus grupos viajan dentro del PAC de los tickets que ya tiene en caché, emitidos antes del cambio. Hasta que no consiga tickets nuevos (cerrar sesión y volver a entrar, o <code>klist purge</code>) el servidor sigue viendo la lista antigua.</p></details>
+    <details><summary>3 · ¿Por qué se puede hacer Kerberoasting a svc_sql pero no a FS01$?</summary><p>El mecanismo es idéntico: cualquiera puede pedir un ticket cifrado con la clave de la cuenta dueña del SPN. La diferencia es la contraseña: la de un equipo son 120 caracteres aleatorios que Windows rota solo; la de <code>svc_sql</code> la eligió una persona (<code>Summer2023!</code>).</p></details>
+    <details><summary>4 · ¿FS01 le pregunta al DC si anna es quien dice ser?</summary><p>No. FS01 confía en el ticket porque consigue descifrarlo con su propia clave, y esa clave solo la conocen él y el KDC. Si se descifra bien, lo escribió el KDC. Por eso quien roba la clave de un servicio puede fabricar tickets para él sin tocar el DC (Silver Ticket).</p></details>
+    <details><summary>5 · ¿Por qué no poner a anna directamente en la ACL de la carpeta?</summary><p>Funcionaría, pero no escala: cada alta, baja o cambio de puesto obligaría a tocar las ACL de cada recurso, y al borrar la cuenta queda un SID huérfano. Con AGDLP solo cambias la pertenencia al grupo global y nadie toca el servidor. Además, auditar «quién accede a qué» pasa a ser leer dos listas de miembros.</p></details>
+    <details><summary>6 · Delegas en una OU «restablecer contraseñas» al Help Desk. Dentro vive un Domain Admin. ¿Pueden cambiarle la contraseña?</summary><p>No. Las cuentas protegidas tienen la herencia desactivada y su ACL se reescribe cada hora desde <code>AdminSDHolder</code>, así que la ACE delegada en la OU nunca les llega. Es exactamente lo que evita que un técnico de soporte se convierta en administrador del dominio.</p></details>
+  </div>
+</section>
+
+<footer>
+  <span>Jorge Escobar · laboratorio propio y aislado (VirtualBox, red interna). Windows Server 2022 + Windows 11.</span>
+  <span>La base del dominio es de <a href="https://github.com/maciej-stawowy/active-directory-lab">Maciej Stawowy</a> (MIT). FS01 es ilustrativo: los grupos <code>DL_FS01_*</code> existen en el lab, el servidor todavía no.</span>
+</footer>
+<noscript><p>Esta página necesita JavaScript para reproducir la animación.</p></noscript>
+</div>
+
+<script>
+"use strict";
+const NS='http://www.w3.org/2000/svg', $=id=>document.getElementById(id);
+const svg=$('g');
+function el(tag,attrs,parent,text){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;(parent||svg).appendChild(e);return e;}
+function clickable(elem,key,label){
+  elem.__key=key;
+  elem.classList.add('click');elem.setAttribute('tabindex','0');elem.setAttribute('role','button');
+  if(label)elem.setAttribute('aria-label',label+' — ver explicación');
+  const open=e=>{e.stopPropagation();openFicha(key);};
+  elem.addEventListener('click',open);
+  elem.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open(e);}});
+}
+
+/* ============================================================
+   PIEZAS DEL ESQUEMA (posiciones en el viewBox 900x566)
+   ============================================================ */
+const NODES = {
+  cl:    {x:75,  y:120, kind:'pc',     label:'CL01',           sub:'puesto de anna'},
+  as:    {x:390, y:120, kind:'svc',    label:'AS',             sub:'Authentication Svc', glyph:'AS'},
+  tgs:   {x:530, y:120, kind:'svc',    label:'TGS',            sub:'Ticket Granting Svc', glyph:'TGS'},
+  fs:    {x:805, y:120, kind:'pc',     label:'FS01',           sub:'servidor de ficheros'},
+  anna:  {x:110, y:298, kind:'user',   label:'anna.nowak',     sub:'CFO · OU=Management'},
+  gg:    {x:290, y:298, kind:'group',  label:'G_Management_Users', sub:'grupo Global'},
+  dl:    {x:480, y:298, kind:'group',  label:'DL_FS01_Management_Modify', sub:'grupo Domain Local'},
+  folder:{x:805, y:298, kind:'folder', label:'\\\\FS01\\Management', sub:'carpeta compartida'},
+  krbtgt:{x:110, y:462, kind:'user',   label:'krbtgt',         sub:'clave del KDC'},
+  fsacc: {x:250, y:462, kind:'pc',     label:'FS01$',          sub:'cuenta de equipo'},
+  ou:    {x:390, y:462, kind:'folder', label:'OU=Management',  sub:'unidad organizativa'},
+  sdh:   {x:520, y:462, kind:'svc',    label:'AdminSDHolder',  sub:'plantilla de ACL', glyph:'SD'},
+  da:    {x:640, y:462, kind:'group',  label:'Domain Admins',  sub:'grupo protegido'}
+};
+const ZONES = [
+  {x:45, y:240,w:545,h:128,label:'IDENTIDAD Y GRUPOS · AGDLP',k:'agdlp'},
+  {x:45, y:400,w:270,h:140,label:'CLAVES DE KERBEROS',k:'keys'},
+  {x:330,y:400,w:368,h:140,label:'PERMISOS SOBRE OBJETOS',k:'perms'}
+];
+const GLOSS = [['tgt','TGT'],['st','Ticket de servicio'],['sesskey','Clave de sesión'],['auth','Autenticador'],['spn','SPN'],['pac','PAC'],['sid','SID'],['token','Token de acceso'],['scopes','Ámbitos de grupo'],['ace','ACL / ACE'],['sdprop','SDProp']];
+
+/* ============================================================
+   FICHAS — qué es cada pieza y cada concepto
+   ============================================================ */
+const INFO = {
+  kdc:{type:'Servicio del controlador de dominio', title:'KDC — Key Distribution Center', dn:'DC01 · puerto 88 (TCP y UDP)', secs:[
+    ['Qué es','El servicio de DC01 que reparte tickets de Kerberos. Es el único del dominio que conoce las claves de todas las cuentas, porque las lee del directorio (`ntds.dit`). Tiene dos ventanillas: el AS y el TGS.'],
+    ['La idea que lo explica todo','Kerberos resuelve un problema: que anna demuestre quién es ante FS01 sin enviarle su contraseña y sin que FS01 tenga que conocerla. La solución es un tercero en el que ambos confían. El KDC comparte un secreto con anna y otro con FS01, y fabrica un ticket que solo FS01 puede abrir.'],
+    ['Lo que NO hace','No decide si anna puede entrar en una carpeta. El KDC autentica (quién eres); autorizar (qué puedes hacer) es trabajo de cada servidor con su ACL. Confundir las dos cosas es el error más común al aprender AD.'],
+    ['Por qué casi no guarda estado','El KDC no recuerda qué tickets ha emitido. Todo lo que necesita saber la próxima vez viaja dentro del propio ticket, cifrado con su clave. Por eso quien roba esa clave (la de `krbtgt`) puede fabricar tickets que el KDC aceptará como suyos.']]},
+  as:{type:'Ventanilla 1 del KDC', title:'AS — Authentication Service', dn:'intercambio AS-REQ / AS-REP', secs:[
+    ['Qué hace','Atiende la primera petición del día: comprueba que anna conoce su contraseña y le entrega un TGT. Es el único momento en que interviene la clave de anna.'],
+    ['Cómo lo comprueba','anna cifra la hora actual con su clave (pre-autenticación). El AS busca la clave de anna en el directorio y, si consigue descifrar una hora reciente (±5 minutos), sabe que quien pregunta conoce la contraseña.'],
+    ['Ataque que nace aquí','Si una cuenta tiene la pre-autenticación desactivada, el AS responde a cualquiera con material cifrado con la clave del usuario: AS-REP Roasting.']]},
+  tgs:{type:'Ventanilla 2 del KDC', title:'TGS — Ticket Granting Service', dn:'intercambio TGS-REQ / TGS-REP', secs:[
+    ['Qué hace','Cambia un TGT por un ticket para un servicio concreto. anna ya no usa su contraseña: presenta el TGT, y el TGS le da un ticket para `cifs/fs01.nordwind.local`.'],
+    ['Cómo sabe con qué clave cifrar','Busca en el directorio qué cuenta tiene registrado ese SPN. Aquí es la cuenta de equipo `FS01$`. El ticket va cifrado con la clave de esa cuenta.'],
+    ['Lo que no comprueba','Si anna tiene permiso para usar el servicio. Entrega un ticket para cualquier SPN a cualquier usuario autenticado. Ese diseño es correcto (autorizar es cosa del servicio) y es también la base del Kerberoasting.'],
+    ['Ojo con el nombre','«TGS» es la ventanilla. Mucha gente llama «un TGS» al ticket que entrega; el nombre preciso de ese ticket es ticket de servicio (ST).']]},
+  cl:{type:'Equipo · cliente del dominio', title:'CL01', dn:'Windows 11 · unido a nordwind.local', secs:[
+    ['Qué hace aquí','Es el puesto donde anna inicia sesión. Windows (el proceso LSASS) convierte su contraseña en claves, habla con el KDC en su nombre y guarda los tickets en memoria.'],
+    ['La caché de tickets','Todo lo que anna obtiene (TGT, tickets de servicio y sus claves de sesión) queda en la memoria de LSASS mientras dure la sesión. La barra «Caché de anna» de abajo lo va mostrando. Se consulta con `klist`.'],
+    ['Por qué importa en seguridad','Quien consigue ser administrador local de CL01 puede leer esa memoria y llevarse los tickets y claves de todo el que tenga sesión abierta (Pass-the-Ticket, Pass-the-Hash). Por eso un Domain Admin no debería iniciar sesión nunca en un puesto de usuario.']]},
+  fs:{type:'Equipo · servidor miembro (ilustrativo)', title:'FS01', dn:'servidor de ficheros · SMB puerto 445', secs:[
+    ['Qué es','Un servidor del dominio que comparte carpetas. En el lab existen los grupos `DL_FS01_*` que crean los scripts de construcción, pero el servidor todavía no está montado: aquí se usa para explicar el modelo.'],
+    ['Cómo autentica','No conoce la contraseña de anna ni le pregunta al DC. Recibe un ticket cifrado con su propia clave de equipo; si lo descifra, sabe que lo emitió el KDC y se fía de lo que dice dentro.'],
+    ['Cómo autoriza','Con los SID que vienen en el PAC del ticket construye un token de acceso y lo compara con la ACL de la carpeta. Esa decisión es local: la toma FS01, no el DC.']]},
+  anna:{type:'Usuario · cuenta de persona', title:'anna.nowak', dn:'CN=anna.nowak,OU=Management,OU=Users,OU=Nordwind,DC=nordwind,DC=local', secs:[
+    ['Qué es','La cuenta de Anna Nowak, directora financiera. Es la «A» de AGDLP: Account.'],
+    ['Qué guarda el directorio de ella','No su contraseña, sino las claves derivadas de ella: el hash NT (clave RC4) y las claves AES. Para Kerberos esas claves SON la credencial: quien las tiene no necesita la contraseña.'],
+    ['Su identidad real','No es el nombre, es su SID. El nombre puede cambiar; el SID no. Las ACL y los tickets hablan siempre de SID.']]},
+  gg:{type:'Grupo de seguridad · ámbito Global', title:'G_Management_Users', dn:'CN=G_Management_Users,OU=Security,OU=Groups,OU=Nordwind,…', secs:[
+    ['Qué es','La «G» de AGDLP. Agrupa personas por lo que SON en la empresa: su departamento o puesto. Responde a la pregunta «¿quién?».'],
+    ['Qué contiene','Solo cuentas (y otros grupos globales) de su propio dominio. A cambio, puede usarse en cualquier dominio del bosque.'],
+    ['Regla práctica','Un grupo global nunca debería aparecer en una ACL. Se mete dentro de grupos Domain Local, que son los que llevan el permiso.']]},
+  dl:{type:'Grupo de seguridad · ámbito Domain Local', title:'DL_FS01_Management_Modify', dn:'CN=DL_FS01_Management_Modify,OU=Security,OU=Groups,OU=Nordwind,…', secs:[
+    ['Qué es','La «DL» de AGDLP. Representa un permiso concreto sobre un recurso concreto. El nombre lo dice todo: servidor FS01, carpeta Management, permiso Modify. Responde a la pregunta «¿qué puede hacerse?».'],
+    ['Qué contiene','Puede tener miembros de cualquier dominio del bosque, pero solo sirve para dar permisos sobre recursos de su propio dominio.'],
+    ['Por qué uno por permiso','Porque así la ACL de la carpeta se escribe una sola vez y no se vuelve a tocar. Dar o quitar acceso es cambiar miembros del grupo, que queda registrado y se audita fácil.']]},
+  folder:{type:'Recurso · carpeta compartida', title:'\\\\FS01\\Management', dn:'la «P» de AGDLP: Permission', secs:[
+    ['Qué es','El recurso final. Tiene un descriptor de seguridad con su lista de control de acceso (DACL): quién puede hacer qué.'],
+    ['Qué dice su ACL','Una entrada (ACE) que concede Modify al grupo `DL_FS01_Management_Modify`, más las de administración del sistema. No menciona a ninguna persona.'],
+    ['Dos capas de permisos','En una carpeta compartida se aplican los permisos del recurso compartido (share) Y los NTFS. Gana el más restrictivo. La práctica habitual es dejar el share abierto a usuarios autenticados y controlar todo con NTFS.']]},
+  krbtgt:{type:'Usuario · cuenta especial de Kerberos', title:'krbtgt', dn:'CN=krbtgt,CN=Users,DC=nordwind,DC=local · RID 502', secs:[
+    ['Qué es','Una cuenta deshabilitada con la que nadie inicia sesión. Existe para una sola cosa: su clave es la que usa el KDC para cifrar y firmar todos los TGT del dominio.'],
+    ['Por qué es la pieza más crítica','El KDC se fía de cualquier TGT que pueda descifrar con esta clave. Quien la tenga puede fabricar un TGT para el usuario que quiera con los grupos que quiera: un Golden Ticket.'],
+    ['Cómo se protege','Solo sale del DC por replicación. Tras un compromiso hay que cambiarla dos veces, porque el dominio acepta la clave actual y la anterior.']]},
+  fsacc:{type:'Equipo · cuenta en el directorio', title:'FS01$', dn:'cuenta de equipo de FS01', secs:[
+    ['Qué es','Cada equipo unido al dominio tiene su propia cuenta, terminada en `$`. Es un principal de Kerberos igual que un usuario: tiene contraseña, claves y SPN.'],
+    ['Para qué sirve su clave','Es el secreto compartido entre FS01 y el KDC. El KDC cifra con ella los tickets para los servicios de FS01, y FS01 los abre con la copia que guarda en local.'],
+    ['Por qué no se le hace Kerberoasting','Su contraseña son 120 caracteres aleatorios que el propio equipo cambia cada 30 días. El ticket se puede pedir igual, pero crackearlo es inviable. El problema aparece cuando el SPN lo tiene una cuenta de usuario con contraseña elegida por una persona.']]},
+  ou:{type:'Unidad organizativa (OU)', title:'OU=Management', dn:'OU=Management,OU=Users,OU=Nordwind,DC=nordwind,DC=local', secs:[
+    ['Qué es','La carpeta del directorio donde vive la cuenta de anna. Una OU sirve para dos cosas: aplicar políticas (GPO) y delegar administración.'],
+    ['Lo que NO es','No es un grupo. Estar en una OU no da acceso a ningún recurso y no aparece en el ticket ni en el token. Un usuario vive en UNA OU y pertenece a VARIOS grupos.'],
+    ['Cómo delega','La OU también es un objeto con su ACL. Una ACE puesta aquí con herencia activada se copia a los objetos que contiene: así «el Help Desk puede restablecer contraseñas de este departamento» se escribe una vez.']]},
+  sdh:{type:'Objeto especial · plantilla', title:'AdminSDHolder', dn:'CN=AdminSDHolder,CN=System,DC=nordwind,DC=local', secs:[
+    ['Qué es','Un objeto que no hace nada por sí mismo: solo existe para que su ACL sirva de molde. Es la ACL «correcta» que deben tener las cuentas y grupos más privilegiados.'],
+    ['Cómo se usa','Cada 60 minutos el proceso SDProp compara la ACL de cada objeto protegido con la de AdminSDHolder y, si difieren, la sobrescribe y desactiva la herencia.'],
+    ['El lado oscuro','Si un atacante con privilegios añade una ACE en AdminSDHolder, SDProp la copiará a todos los objetos protegidos cada hora. Es una técnica de persistencia clásica.']]},
+  da:{type:'Grupo · grupo protegido', title:'Domain Admins', dn:'CN=Domain Admins,CN=Users,DC=nordwind,DC=local · RID 512', secs:[
+    ['Qué es','El grupo cuyos miembros administran todo el dominio.'],
+    ['Por qué está protegido','Si heredara permisos de su contenedor, cualquier delegación descuidada podría dar a alguien control sobre él. Por eso su ACL no se hereda: se impone desde AdminSDHolder.'],
+    ['Otros objetos protegidos','Administrators, Enterprise Admins, Schema Admins, Account Operators, Backup Operators, los controladores de dominio, y las cuentas `Administrator` y `krbtgt`, además de todos sus miembros. Se reconocen por `adminCount=1`.']]},
+  dir:{type:'Base de datos del dominio', title:'El directorio', dn:'DC=nordwind,DC=local · C:\\Windows\\NTDS\\ntds.dit', secs:[
+    ['Qué es','La base de datos que guarda todos los objetos del dominio: usuarios, equipos, grupos, OU. Se consulta por LDAP y vive en el DC.'],
+    ['Tres cosas que guarda cada objeto','Sus atributos (nombre, SID, grupos a los que pertenece…), sus secretos si es una cuenta (las claves de Kerberos) y su descriptor de seguridad (quién puede hacerle qué).'],
+    ['Por qué todo depende de él','El KDC saca de aquí las claves para cifrar tickets y los grupos para rellenar el PAC. Kerberos, AGDLP y los permisos son tres formas de leer la misma base de datos.']]},
+  agdlp:{type:'Modelo de diseño', title:'AGDLP', dn:'Account → Global → Domain Local → Permission', secs:[
+    ['Qué es','Una convención de Microsoft para dar acceso a recursos sin poner personas en las ACL: las cuentas (A) van en grupos globales por rol (G), los globales van en grupos domain local por recurso (DL), y solo los DL reciben el permiso (P).'],
+    ['Qué problema resuelve','Separa dos preguntas que cambian a ritmos distintos. «Quién es de dirección» cambia con cada contratación. «Qué puede hacer dirección en esta carpeta» casi nunca cambia. Cada pregunta se responde en un grupo distinto.'],
+    ['En este lab','Los scripts `03-create-groups-agdlp.ps1` y `04-add-users-to-groups.ps1` crean 7 grupos `G_<Departamento>_Users`, los `DL_FS01_<Carpeta>_<Permiso>` y el anidamiento entre ellos.'],
+    ['Variante','En bosques con varios dominios se intercala un grupo Universal: AGUDLP.']]},
+  keys:{type:'Concepto', title:'Las claves a largo plazo', dn:'el secreto que cada principal comparte con el KDC', secs:[
+    ['Qué son','Cada cuenta (usuario, equipo o servicio) tiene claves derivadas de su contraseña. El directorio las guarda; el dueño de la cuenta las puede recalcular. Son el único secreto que comparten cada cuenta y el KDC.'],
+    ['Cuáles hay','RC4: es directamente el hash NT, `MD4(UTF-16LE(contraseña))`, sin sal. AES128 y AES256: salen de PBKDF2-HMAC-SHA1 con 4096 iteraciones y una sal formada por el dominio en mayúsculas y el nombre de la cuenta.'],
+    ['La regla para leer cualquier mensaje Kerberos','Pregúntate siempre «¿con la clave de quién va cifrado esto?». Eso te dice quién puede leerlo, quién puede fabricarlo y qué se puede crackear offline. Los colores del panel de red marcan justo eso.']]},
+  perms:{type:'Concepto', title:'Permisos sobre objetos del directorio', dn:'atributo nTSecurityDescriptor', secs:[
+    ['La idea','Una carpeta tiene ACL, y un objeto de AD también. La diferencia es qué se concede: en la carpeta, leer o modificar ficheros; en un usuario o grupo, restablecer su contraseña, cambiar sus miembros o reescribir su ACL.'],
+    ['Por qué es el corazón del pentesting de AD','Tener un permiso sobre un objeto es tener poder sobre esa identidad. Encadenando permisos (yo controlo a X, X controla al grupo Y) aparecen rutas hasta Domain Admins. BloodHound dibuja exactamente este grafo.'],
+    ['Derechos que hay que conocer','`GenericAll` (todo), `WriteDacl` (reescribir la ACL), `WriteOwner` (hacerse propietario), `WriteProperty` sobre `member` (añadir miembros), y el derecho extendido Reset Password (`ForceChangePassword`).']]},
+
+  tgt:{type:'Glosario · ticket', title:'TGT — Ticket Granting Ticket', dn:'ticket para el servicio krbtgt/NORDWIND.LOCAL', secs:[
+    ['Qué es','El «pase del día». Demuestra ante el KDC que anna ya se autenticó, para no volver a usar su contraseña. Dura 10 horas y se puede renovar hasta 7 días (valores por defecto).'],
+    ['Qué lleva dentro','El nombre de anna, las fechas de validez, una clave de sesión y el PAC con sus grupos. Todo cifrado con la clave de `krbtgt`.'],
+    ['Lo que hay que entender','anna lo guarda y lo presenta, pero no puede leerlo ni modificarlo: no tiene la clave de krbtgt. Un TGT es, en el fondo, un mensaje que el KDC se escribe a sí mismo y le da a anna para que se lo guarde.']]},
+  st:{type:'Glosario · ticket', title:'Ticket de servicio (ST)', dn:'lo que entrega el TGS · a veces llamado «TGS»', secs:[
+    ['Qué es','Un ticket válido para un único servicio, aquí `cifs/fs01.nordwind.local`. Dura 10 horas por defecto.'],
+    ['Qué lleva dentro','Lo mismo que un TGT (identidad de anna, validez, clave de sesión, PAC), pero cifrado con la clave de la cuenta que ejecuta el servicio, no con la de krbtgt.'],
+    ['Consecuencia','Solo ese servicio puede abrirlo. Y quien conozca la clave del servicio puede fabricar uno falso sin pasar por el KDC: un Silver Ticket.']]},
+  sesskey:{type:'Glosario · clave', title:'Clave de sesión', dn:'clave temporal, generada al azar por el KDC', secs:[
+    ['Qué es','Una clave aleatoria que el KDC inventa para cada ticket, para que dos partes que no comparten secreto puedan hablar. Hay una entre anna y el KDC (con el TGT) y otra entre anna y FS01 (con el ticket de servicio).'],
+    ['Cómo llega a los dos','El KDC la mete dos veces en su respuesta: una dentro del ticket (para el destinatario del ticket) y otra en la parte cifrada para anna. Así ambos la tienen sin que haya viajado en claro.'],
+    ['Por qué un ticket robado no basta','Sin la clave de sesión no se puede fabricar el autenticador que acompaña al ticket. Por eso las herramientas de Pass-the-Ticket extraen siempre el ticket junto con su clave de sesión.']]},
+  auth:{type:'Glosario · mensaje', title:'Autenticador', dn:'acompaña a cada ticket que se presenta', secs:[
+    ['Qué es','Un bloque pequeño con el nombre de anna y la hora actual, cifrado con la clave de sesión del ticket al que acompaña.'],
+    ['Para qué sirve','Demuestra que quien presenta el ticket conoce su clave de sesión, es decir, que es su dueño legítimo y no alguien que lo copió de la red.'],
+    ['Por qué importa la hora','El receptor rechaza autenticadores con más de 5 minutos de desfase y recuerda los recientes para no aceptar repeticiones. Por eso Kerberos falla con el reloj mal sincronizado (`KRB_AP_ERR_SKEW`), algo que verás atacando desde Kali.']]},
+  spn:{type:'Glosario · identificador', title:'SPN — Service Principal Name', dn:'atributo servicePrincipalName', secs:[
+    ['Qué es','El nombre de un servicio en Kerberos, con la forma `servicio/equipo:puerto`. Ejemplos: `cifs/fs01.nordwind.local`, `MSSQLSvc/dc01.nordwind.local:1433`.'],
+    ['Para qué sirve','Es el índice que usa el TGS: «¿qué cuenta tiene este SPN?» → «cifro el ticket con la clave de esa cuenta». Va guardado en el atributo `servicePrincipalName` de la cuenta.'],
+    ['Detalle útil','Los equipos registran `HOST/nombre`, y `cifs`, `http` y otros muchos son alias de HOST. Por eso el ticket de `cifs/fs01` se cifra con la clave de `FS01$` aunque ese SPN no aparezca escrito.']]},
+  pac:{type:'Glosario · estructura', title:'PAC — Privilege Attribute Certificate', dn:'dentro de cada ticket emitido por un KDC de Windows', secs:[
+    ['Qué es','La parte del ticket que dice qué eres: tu SID y los SID de todos tus grupos. Es la extensión de Microsoft que une Kerberos (autenticación) con los grupos de AD (autorización).'],
+    ['Quién lo rellena','El KDC, leyendo el directorio en el momento de emitir el ticket. Los grupos globales y universales se calculan al emitir el TGT; los domain local se añaden al emitir el ticket de servicio.'],
+    ['Cómo se protege','Lleva firmas hechas con la clave del servicio y con la clave de krbtgt. El servidor comprueba la primera; la segunda evita que el propio servicio lo altere.'],
+    ['Consecuencias','Los grupos se «congelan» al emitir el ticket: un cambio de grupo no se nota hasta conseguir tickets nuevos. Y quien pueda firmar un PAC (con la clave de krbtgt o la del servicio) puede declararse miembro de lo que quiera.']]},
+  sid:{type:'Glosario · identificador', title:'SID — Security Identifier', dn:'S-1-5-21-<dominio>-<RID>', secs:[
+    ['Qué es','El identificador real e inmutable de un usuario, grupo o equipo. Tiene una parte común a todo el dominio y un número final, el RID, único por objeto.'],
+    ['Dónde se usa','En todas partes donde importa la seguridad: las ACL guardan SID, el PAC lleva SID, el token de acceso es una lista de SID. Los nombres son solo para las personas.'],
+    ['RID que conviene saberse','`500` Administrator, `502` krbtgt, `512` Domain Admins, `513` Domain Users, `519` Enterprise Admins. Las cuentas creadas por la empresa empiezan a partir de `1000`.']]},
+  token:{type:'Glosario · estructura', title:'Token de acceso', dn:'lo crea el servidor al aceptar el ticket', secs:[
+    ['Qué es','El objeto que Windows asocia a la sesión de anna en un equipo concreto. Contiene su SID, los SID de sus grupos y sus privilegios.'],
+    ['De dónde sale','Del PAC del ticket, más los grupos locales del propio servidor y grupos especiales como Authenticated Users.'],
+    ['Para qué sirve','Cada vez que anna intenta abrir algo, Windows compara los SID del token con la ACL del objeto. `whoami /groups` muestra el token de la sesión actual.']]},
+  scopes:{type:'Glosario · grupos', title:'Ámbitos de grupo', dn:'Global · Domain Local · Universal', secs:[
+    ['Global','Miembros solo de su propio dominio. Utilizable en cualquier dominio del bosque. Uso: agrupar personas por rol.'],
+    ['Domain Local','Miembros de cualquier dominio. Utilizable solo en recursos de su propio dominio. Uso: representar un permiso sobre un recurso.'],
+    ['Universal','Miembros de cualquier dominio y utilizable en cualquiera. Su lista de miembros se replica al Global Catalog. Uso: juntar grupos globales de varios dominios.'],
+    ['Por qué importa con un solo dominio','Con un dominio todo funcionaría con cualquier ámbito. Se sigue el modelo porque separa «quién» de «qué», y porque el día que haya un segundo dominio no habrá que rehacer nada.']]},
+  ace:{type:'Glosario · permisos', title:'ACL y ACE', dn:'descriptor de seguridad de un objeto', secs:[
+    ['Descriptor de seguridad','Lo que tiene todo objeto protegible (fichero, carpeta, usuario, grupo, OU): un propietario, una DACL (quién puede hacer qué) y una SACL (qué se audita).'],
+    ['ACE','Cada línea de la DACL: un SID, un tipo (permitir o denegar), los derechos concedidos y unos indicadores que dicen si se hereda y a qué tipo de objetos.'],
+    ['Cómo se evalúa','Se recorren las ACE en orden: primero las explícitas (denegar y luego permitir), después las heredadas. Si nada concede lo pedido, se deniega. Una DACL vacía deniega todo.'],
+    ['El propietario','Puede reescribir la DACL aunque esta no le conceda nada. Por eso `WriteOwner` sobre un objeto equivale, en dos pasos, a control total.']]},
+  sdprop:{type:'Glosario · proceso', title:'SDProp', dn:'Security Descriptor Propagator', secs:[
+    ['Qué es','Un proceso que se ejecuta cada 60 minutos en el DC que tiene el rol de emulador de PDC.'],
+    ['Qué hace','Busca los grupos protegidos y todos sus miembros, les pone `adminCount=1`, les copia la ACL de AdminSDHolder y les desactiva la herencia.'],
+    ['Efecto secundario','Al sacar a alguien de un grupo protegido, `adminCount` y la herencia desactivada se quedan como estaban. Esas cuentas «huérfanas» son habituales en dominios antiguos y dan pistas sobre quién fue administrador.']]}
+};
+
+/* ============================================================
+   LAS ESCENAS
+   Acciones: cmd / out / cm / pkt / beam / wire / set / wait
+   Solo las acciones "set" cambian el estado del esquema.
+   ============================================================ */
+const KERB='KERBEROS · ¿quién eres?', AUTHZ='AUTORIZACIÓN · ¿qué puedes hacer?', OBJ='PERMISOS SOBRE OBJETOS · ¿quién manda sobre quién?';
+const STEPS = [
+{
+  chip:'Logon', title:'La contraseña se convierte en clave y no sale del equipo', need:KERB,
+  sum:'Son las 9:02. anna escribe su contraseña en CL01. Antes de hablar con nadie, Windows localiza un controlador de dominio por DNS y transforma la contraseña en claves criptográficas. El directorio guarda esas mismas claves: ese secreto compartido es todo lo que Kerberos necesita.',
+  cards:[
+    ['Qué pasa','CL01 pregunta al DNS qué servidor ofrece Kerberos para `nordwind.local`. Después deriva las claves de anna a partir de su contraseña. La contraseña en sí no se envía a ningún sitio, ni ahora ni después.'],
+    ['Por qué está diseñado así','Kerberos nació para redes en las que cualquiera puede escuchar. Si la contraseña nunca viaja, no se puede capturar. A cambio, las dos partes deben poder calcular la misma clave: por eso el directorio guarda claves derivadas y no la contraseña.'],
+    ['Qué ataque nace aquí','La clave ES la credencial: quien roba el hash NT o la clave AES se autentica sin conocer la contraseña (Pass-the-Hash, Overpass-the-Hash). Es lo que se consigue al final del ataque: [paso 7 del replay](index.html#paso=7). Y el registro DNS es lo que un atacante consulta para encontrar el DC.']
+  ],
+  script:[
+    {t:'cm', s:'# Lo que hace Windows por debajo al arrancar sesión: buscar un KDC.'},
+    {t:'cmd', s:'nslookup -type=SRV _kerberos._tcp.nordwind.local'},
+    {t:'wire', title:'DNS · CL01 → DC01 (puerto 53)', parts:[['pregunta SRV','_kerberos._tcp.nordwind.local'],['respuesta','dc01.nordwind.local, puerto 88']], note:'Sin cifrar y sin autenticar. AD depende por completo del DNS: los equipos no tienen apuntado quién es su DC, lo preguntan cada vez.'},
+    {t:'pkt', from:'cl', to:'as', label:'DNS: ¿quién da Kerberos?', cls:'no'},
+    {t:'pkt', from:'as', to:'cl', label:'dc01.nordwind.local:88', cls:'no'},
+    {t:'out', lines:['_kerberos._tcp.nordwind.local   SRV service location:','          priority       = 0','          weight         = 100',['hl','          port           = 88'],['hl','          svr hostname   = dc01.nordwind.local']]},
+    {t:'set', f:G=>{G.add('cl','target');G.sub('cl','anna escribe su clave');}},
+    {t:'cm', s:'# anna escribe su contraseña. LSASS la convierte en claves (string-to-key):'},
+    {t:'cm', s:'#   AES256 = PBKDF2-HMAC-SHA1(contraseña, sal="NORDWIND.LOCALanna.nowak", 4096 vueltas)'},
+    {t:'cm', s:'#   RC4    = MD4(UTF-16LE(contraseña))   ← el hash NT, sin sal'},
+    {t:'set', f:G=>{G.rm('cl','target');G.sub('cl','claves derivadas');G.loot('clave de anna','k');}},
+    {t:'beam', from:'cl', to:'anna', color:'var(--amber)'},
+    {t:'set', f:G=>{G.add('anna','key');G.sub('anna','mismas claves en ntds.dit');}},
+    {t:'cm', s:'# El directorio guarda las mismas claves en la cuenta de anna. Nadie ha enviado nada todavía.'}
+  ]
+},
+{
+  chip:'AS · TGT', title:'AS-REQ / AS-REP: demostrar quién eres y recibir el TGT', need:KERB,
+  sum:'CL01 pide un TGT al Authentication Service. Para demostrar que conoce la contraseña cifra la hora actual con la clave de anna. El AS la descifra con la copia del directorio y responde con dos bloques: un TGT que anna no puede abrir y una clave de sesión que sí.',
+  cards:[
+    ['Qué pasa','El primer intento sin pre-autenticación se rechaza. En el segundo, el AS valida la hora cifrada y devuelve el TGT (cifrado con la clave de `krbtgt`) y una clave de sesión nueva (cifrada con la clave de anna). Esa clave de sesión va también dentro del TGT.'],
+    ['Por qué está diseñado así','El TGT evita usar la clave de anna el resto del día: Windows puede dejar de depender de ella y trabajar con un pase que caduca a las 10 horas. Y como el TGT va cifrado para el propio KDC, este no necesita recordar a quién se lo dio.'],
+    ['Qué ataque nace aquí','Si una cuenta no exige pre-autenticación, el AS entrega a cualquiera el bloque cifrado con la clave del usuario: AS-REP Roasting, [paso 2 del replay](index.html#paso=2). Y todo TGT se valida solo con la clave de krbtgt: quien la robe fabrica los suyos (Golden Ticket).']
+  ],
+  script:[
+    {t:'wire', title:'AS-REQ · primer intento, sin pre-autenticación', parts:[['cname','anna.nowak'],['sname','krbtgt/NORDWIND.LOCAL'],['padata','vacío']], note:'Windows prueba primero sin pre-autenticación. El AS contesta con el error PREAUTH_REQUIRED y, de paso, indica la sal y los cifrados que admite. Esas nueve respuestas de error son las que se ven en el AS-REP Roasting.'},
+    {t:'pkt', from:'cl', to:'as', label:'AS-REQ', cls:'req'},
+    {t:'pkt', from:'as', to:'cl', label:'ERR_PREAUTH_REQUIRED', cls:'no'},
+    {t:'wire', title:'AS-REQ · con pre-autenticación', parts:[['cname · sname','anna.nowak pide un ticket para krbtgt'],['PA-ENC-TIMESTAMP','la hora actual, cifrada con la clave de anna','kU'],['nonce','número al azar para emparejar la respuesta']], note:'La hora cifrada es la prueba de identidad. Solo quien conoce la clave de anna puede producir un bloque que, al descifrarlo, dé una hora reciente.'},
+    {t:'pkt', from:'cl', to:'as', label:'AS-REQ + hora cifrada', cls:'req'},
+    {t:'set', f:G=>{G.add('as','target');G.sub('as','busca la clave de anna');}},
+    {t:'beam', from:'as', to:'anna', color:'var(--amber)'},
+    {t:'set', f:G=>{G.rm('anna','key');G.add('anna','ok');G.sub('anna','hora descifrada ✓');G.sub('as','anna es anna');}},
+    {t:'beam', from:'as', to:'krbtgt', color:'var(--violet)'},
+    {t:'set', f:G=>{G.add('krbtgt','key');G.sub('krbtgt','cifra el TGT');}},
+    {t:'wire', title:'AS-REP · KDC → CL01', parts:[['ticket (TGT)','anna.nowak · validez · clave de sesión A · PAC — cifrado con la clave de krbtgt','kK'],['enc-part','clave de sesión A · nonce · validez — cifrado con la clave de anna','kU']], note:'La misma clave de sesión A va en los dos bloques. anna abre el suyo y la obtiene; el TGT lo guarda cerrado. Con RC4, el bloque de anna es lo que hashcat ataca en modo 18200.'},
+    {t:'pkt', from:'as', to:'cl', label:'AS-REP: TGT + clave de sesión', cls:'ok'},
+    {t:'set', f:G=>{G.rm('as','target');G.add('as','ok');G.sub('as','TGT emitido');G.sub('cl','TGT en caché');G.loot('TGT');G.loot('clave de sesión A','s');}},
+    {t:'cmd', s:'klist'},
+    {t:'out', lines:['Cached Tickets: (1)','','#0>     Client: anna.nowak @ NORDWIND.LOCAL',['hl','        Server: krbtgt/NORDWIND.LOCAL @ NORDWIND.LOCAL'],'        KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96','        Ticket Flags 0x40e10000 -> forwardable renewable initial pre_authent name_canonicalize','        Start Time: 11/15/2026 9:02:11 (local)',['hl','        End Time:   11/15/2026 19:02:11 (local)'],'        Renew Time: 11/22/2026 9:02:11 (local)','        Session Key Type: AES-256-CTS-HMAC-SHA1-96','        Kdc Called: DC01.nordwind.local']},
+    {t:'cm', s:'# Un TGT es un ticket para el servicio "krbtgt". Vale 10 horas. A partir de aquí la contraseña ya no se usa.'}
+  ]
+},
+{
+  chip:'TGS · ticket', title:'TGS-REQ / TGS-REP: cambiar el TGT por un ticket para FS01', need:KERB,
+  sum:'anna quiere abrir una carpeta de FS01. CL01 presenta el TGT al Ticket Granting Service y pide un ticket para el servicio de ficheros. El TGS busca qué cuenta atiende ese servicio y cifra el ticket con la clave de esa cuenta.',
+  cards:[
+    ['Qué pasa','CL01 envía el TGT, un autenticador cifrado con la clave de sesión A y el nombre del servicio (SPN). El TGS abre el TGT con la clave de krbtgt, saca de dentro la clave de sesión A y con ella valida el autenticador. Después emite un ticket cifrado con la clave de `FS01$`.'],
+    ['Por qué está diseñado así','El TGS no necesita la contraseña de anna ni recordar nada: todo lo que le hace falta viaja en el TGT. Y no comprueba permisos porque no puede conocer las reglas de cada servicio del dominio: eso lo decidirá FS01.'],
+    ['Qué ataque nace aquí','Cualquier usuario puede pedir un ticket para cualquier SPN y llevarse un bloque cifrado con la clave de la cuenta de servicio. Si esa cuenta tiene una contraseña humana, se crackea offline: Kerberoasting, [paso 3 del replay](index.html#paso=3).']
+  ],
+  script:[
+    {t:'cm', s:'# klist get pide un ticket a mano; al abrir \\\\fs01\\... Windows hace lo mismo sin avisar.'},
+    {t:'cmd', s:'klist get cifs/fs01.nordwind.local'},
+    {t:'wire', title:'TGS-REQ · CL01 → KDC', parts:[['TGT','tal cual lo recibió; anna no puede leerlo','kK'],['autenticador','anna.nowak + hora — cifrado con la clave de sesión A','kT'],['sname','cifs/fs01.nordwind.local']], note:'El autenticador demuestra que quien presenta el TGT conoce su clave de sesión. Un TGT copiado de la red no sirve sin ella.'},
+    {t:'pkt', from:'cl', to:'tgs', label:'TGS-REQ: TGT + autenticador', cls:'req'},
+    {t:'set', f:G=>{G.add('tgs','target');G.sub('tgs','abre el TGT');}},
+    {t:'beam', from:'tgs', to:'krbtgt', color:'var(--violet)'},
+    {t:'set', f:G=>{G.sub('krbtgt','descifra el TGT');G.sub('tgs','¿quién tiene ese SPN?');}},
+    {t:'beam', from:'tgs', to:'fsacc', color:'var(--green)'},
+    {t:'set', f:G=>{G.add('fsacc','key');G.sub('fsacc','dueña del SPN cifs');}},
+    {t:'wire', title:'TGS-REP · KDC → CL01', parts:[['ticket de servicio','anna.nowak · validez · clave de sesión B · PAC — cifrado con la clave de FS01$','kS'],['enc-part','clave de sesión B — cifrado con la clave de sesión A','kT']], note:'Misma estructura que el AS-REP, cambiando las claves. Si el SPN fuera de una cuenta de usuario (svc_sql), el bloque verde iría cifrado con su contraseña: eso es lo que se crackea en el Kerberoasting.'},
+    {t:'pkt', from:'tgs', to:'cl', label:'TGS-REP: ticket para cifs/fs01', cls:'ok'},
+    {t:'set', f:G=>{G.rm('tgs','target');G.add('tgs','ok');G.sub('tgs','ticket emitido');G.sub('cl','TGT + ticket de FS01');G.loot('ticket cifs/fs01');G.loot('clave de sesión B','s');}},
+    {t:'out', lines:['A ticket to cifs/fs01.nordwind.local has been retrieved successfully.','','Cached Tickets: (2)','','#0>     Client: anna.nowak @ NORDWIND.LOCAL','        Server: krbtgt/NORDWIND.LOCAL @ NORDWIND.LOCAL','#1>     Client: anna.nowak @ NORDWIND.LOCAL',['hl','        Server: cifs/fs01.nordwind.local @ NORDWIND.LOCAL'],'        KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96','        End Time:   11/15/2026 19:02:11 (local)']},
+    {t:'cm', s:'# El TGS no ha preguntado si anna tiene permiso sobre FS01. Solo ha comprobado que el TGT es válido.'}
+  ]
+},
+{
+  chip:'AP · servicio', title:'AP-REQ: presentar el ticket al servidor', need:KERB,
+  sum:'CL01 abre una sesión SMB con FS01 y le entrega el ticket de servicio. FS01 lo descifra con su propia clave, encuentra dentro la clave de sesión B y con ella comprueba el autenticador. El controlador de dominio no interviene.',
+  cards:[
+    ['Qué pasa','El ticket y un autenticador nuevo viajan dentro del inicio de sesión SMB. FS01 abre el ticket con la clave de su cuenta de equipo. Si se descifra correctamente y la hora del autenticador es reciente, anna queda autenticada. FS01 puede responder con un AP-REP para demostrar también quién es él.'],
+    ['Por qué está diseñado así','El servidor no tiene que consultar al DC en cada conexión: se fía del ticket porque solo el KDC conoce la clave con la que está cifrado. Eso hace que Kerberos escale y que el cliente también pueda verificar al servidor (autenticación mutua), cosa que NTLM no ofrece.'],
+    ['Qué ataque nace aquí','La confianza descansa en la clave del servicio. Quien la roba fabrica tickets para ese servicio sin pasar por el KDC (Silver Ticket). Y los tickets con su clave de sesión, guardados en la memoria de CL01, se pueden robar y reutilizar (Pass-the-Ticket).']
+  ],
+  script:[
+    {t:'cmd', s:'net use \\\\fs01.nordwind.local\\IPC$'},
+    {t:'wire', title:'AP-REQ · CL01 → FS01 (dentro de SMB, puerto 445)', parts:[['ticket de servicio','tal cual lo emitió el TGS','kS'],['autenticador','anna.nowak + hora — cifrado con la clave de sesión B','kT']], note:'Fíjate en quién puede abrir cada bloque: el ticket, solo FS01. El autenticador, solo quien tenga la clave de sesión B, que está dentro del ticket.'},
+    {t:'pkt', from:'cl', to:'fs', label:'AP-REQ: ticket + autenticador', cls:'req'},
+    {t:'set', f:G=>{G.add('fs','target');G.sub('fs','abre el ticket');G.sub('fsacc','abre el ticket');}},
+    {t:'wait', ms:600},
+    {t:'set', f:G=>{G.sub('fs','valida el autenticador');}},
+    {t:'wire', title:'AP-REP · FS01 → CL01', parts:[['enc-part','la hora del autenticador, cifrada con la clave de sesión B','kT']], note:'Autenticación mutua: solo el FS01 auténtico pudo abrir el ticket y obtener la clave de sesión B. Un servidor impostor no podría producir esta respuesta.'},
+    {t:'pkt', from:'fs', to:'cl', label:'AP-REP: yo también soy quien digo', cls:'ok'},
+    {t:'set', f:G=>{G.rm('fs','target');G.add('fs','ok');G.sub('fs','anna autenticada');}},
+    {t:'out', lines:[['ok','The command completed successfully.']]},
+    {t:'cm', s:'# FS01 no ha hablado con DC01 en ningún momento.'},
+    {t:'cm', s:'# Sabe QUIÉN es anna. Todavía no ha decidido QUÉ puede hacer: eso son los pasos 5 a 7.'}
+  ]
+},
+{
+  chip:'PAC', title:'El PAC: tus grupos viajan dentro del ticket', need:'KERBEROS → AUTORIZACIÓN · el puente',
+  sum:'Dentro de cada ticket hay una estructura con el SID de anna y los SID de todos sus grupos, firmada por el KDC. FS01 la usa para construir el token de acceso de anna. Es la pieza que une la autenticación con los permisos.',
+  cards:[
+    ['Qué pasa','El KDC consultó el directorio al emitir los tickets y copió en el PAC los SID de anna y de sus grupos, incluidos los anidados. FS01 lee el PAC, comprueba su firma y crea un token con esos SID. No ha tenido que preguntar a nadie a qué grupos pertenece anna.'],
+    ['Por qué está diseñado así','Kerberos estándar solo dice quién eres. Microsoft añadió el PAC para que el servidor pudiera autorizar sin consultar el directorio en cada acceso. El precio es que los grupos quedan fijados cuando se emite el ticket: un cambio de grupo no se aplica hasta volver a iniciar sesión.'],
+    ['Qué ataque nace aquí','Quien puede firmar un PAC decide en qué grupos está. Con la clave de `krbtgt` se fabrica un TGT cuyo PAC incluye el RID 512 (Domain Admins): es el Golden Ticket que queda disponible tras el DCSync del [paso 7 del replay](index.html#paso=7).']
+  ],
+  script:[
+    {t:'cm', s:'# Esto no es un mensaje nuevo: es lo que iba DENTRO del ticket del paso anterior.'},
+    {t:'wire', title:'PAC · dentro del ticket de servicio', parts:[['usuario','SID de anna.nowak (S-1-5-21-…-1105)'],['grupos globales','Domain Users (…-513) · G_Management_Users'],['grupos domain local','DL_FS01_Management_Modify · DL_FS01_Public_Read (los añade el TGS)'],['firma del servidor','hecha con la clave de FS01$','kS'],['firma del KDC','hecha con la clave de krbtgt','kK']], note:'El PAC lleva los grupos ya resueltos, también los anidados: anna no es miembro directo de ningún grupo DL, pero su SID aparece porque G_Management_Users sí lo es.'},
+    {t:'set', f:G=>{G.sub('fs','lee el PAC');G.add('gg','target');G.add('dl','target');G.sub('gg','SID en el PAC');G.sub('dl','SID en el PAC');}},
+    {t:'beam', from:'fs', to:'folder', color:'var(--blue)'},
+    {t:'set', f:G=>{G.sub('fs','token de anna creado');}},
+    {t:'cmd', s:'whoami /user'},
+    {t:'out', lines:['User Name            SID','==================== =========================',['hl','nordwind\\anna.nowak  S-1-5-21-…-1105']]},
+    {t:'cmd', s:'whoami /groups'},
+    {t:'out', lines:['Group Name                              Type             SID','======================================= ================ ================','Everyone                                Well-known group S-1-1-0','NT AUTHORITY\\Authenticated Users        Well-known group S-1-5-11','NORDWIND\\Domain Users                   Group            S-1-5-21-…-513',['hl','NORDWIND\\G_Management_Users             Group            S-1-5-21-…-1121'],['hl','NORDWIND\\DL_FS01_Management_Modify      Alias            S-1-5-21-…-1132'],'NORDWIND\\DL_FS01_Public_Read            Alias            S-1-5-21-…-1134']},
+    {t:'cm', s:'# "Group" = grupo global. "Alias" = grupo domain local. Así los distingue Windows.'},
+    {t:'cm', s:'# Si ahora añades a anna a otro grupo, esta lista no cambia hasta que consiga tickets nuevos (klist purge o cerrar sesión).'},
+    {t:'set', f:G=>{G.rm('gg','target');G.rm('dl','target');}}
+  ]
+},
+{
+  chip:'AGDLP', title:'AGDLP: por qué anna no aparece en ninguna ACL', need:AUTHZ,
+  sum:'El acceso de anna a la carpeta pasa por una cadena de dos grupos. La cuenta entra en un grupo global que representa su rol; ese grupo entra en un grupo domain local que representa un permiso sobre un recurso; y solo ese último figura en la ACL.',
+  cards:[
+    ['Qué pasa','`anna.nowak` (Account) es miembro de `G_Management_Users` (Global). Ese grupo es miembro de `DL_FS01_Management_Modify` (Domain Local). Y la ACL de la carpeta concede Modify (Permission) a ese grupo DL. Cuatro eslabones, cuatro letras.'],
+    ['Por qué está diseñado así','Cada cambio toca un solo sitio. Entra un directivo nuevo: se le añade al grupo G y hereda todos sus accesos. Se crea una carpeta nueva: se crea su DL y se meten los G que correspondan. Nadie edita ACL en los servidores, y para saber quién accede a qué basta leer miembros de grupos.'],
+    ['Qué ataque nace aquí','El anidamiento oculta el acceso efectivo: un grupo inofensivo metido dentro de otro privilegiado es una escalada que nadie ve en la consola. BloodHound resuelve estas cadenas en segundos, como en el [paso 8 del replay](index.html#paso=8). Y comprometer una cuenta es heredar todo lo que su rol alcanza.']
+  ],
+  script:[
+    {t:'cmd', host:'dc', s:'Get-ADPrincipalGroupMembership anna.nowak | Select-Object name, GroupScope'},
+    {t:'out', lines:['name                GroupScope','----                ----------','Domain Users            Global',['hl','G_Management_Users      Global']]},
+    {t:'set', f:G=>{G.sub('anna','A · Account');G.sub('gg','G · Global · ¿quién?');G.edge('a1','anna','gg','miembro de','ok');}},
+    {t:'cm', s:'# A → G. El grupo global dice quién es anna en la empresa: dirección.'},
+    {t:'cmd', host:'dc', s:'Get-ADPrincipalGroupMembership G_Management_Users | Select-Object name, GroupScope'},
+    {t:'out', lines:['name                        GroupScope','----                        ----------',['hl','DL_FS01_Management_Modify   DomainLocal'],'DL_FS01_Public_Read         DomainLocal']},
+    {t:'set', f:G=>{G.sub('dl','DL · Domain Local · ¿qué?');G.edge('a2','gg','dl','miembro de','ok');}},
+    {t:'cm', s:'# G → DL. El grupo domain local dice qué se puede hacer y dónde: Modify en \\\\FS01\\Management.'},
+    {t:'set', f:G=>{G.sub('folder','P · Permission');G.add('folder','target');G.edge('a3','dl','folder','ACE: Modify','');}},
+    {t:'cm', s:'# DL → P. La ACL de la carpeta nombra al grupo DL y a nadie más. Se comprueba en el paso siguiente.'},
+    {t:'cm', s:'# Mañana contratan a otro directivo: un solo cambio, añadirlo a G_Management_Users.'},
+    {t:'cm', s:'# Estos grupos los crean scripts/build/03-create-groups-agdlp.ps1 y 04-add-users-to-groups.ps1.'}
+  ]
+},
+{
+  chip:'ACL', title:'La comprobación de acceso: el token contra la ACL', need:AUTHZ,
+  sum:'anna abre la carpeta. FS01 compara los SID de su token con las entradas de la ACL. Hay una entrada para uno de sus grupos que concede Modify, así que entra. En la carpeta de Recursos Humanos ninguna entrada coincide, y eso basta para denegar.',
+  cards:[
+    ['Qué pasa','FS01 recorre las ACE de la carpeta en orden buscando los SID del token. Encuentra el de `DL_FS01_Management_Modify` con el permiso Modify y concede el acceso. Para `\\\\FS01\\HR` no hay ninguna ACE con un SID de anna: el acceso se deniega sin que exista una regla que lo diga.'],
+    ['Por qué está diseñado así','Lo que no está permitido está denegado: las ACL son listas de permitidos, no de prohibidos. La decisión se toma en el servidor que tiene el recurso, con datos que ya tiene (token y ACL), sin depender de que el DC esté disponible.'],
+    ['Qué ataque nace aquí','Las ACL demasiado amplias: carpetas donde `Everyone` o `Authenticated Users` pueden leer, con scripts y contraseñas dentro. Buscar recursos compartidos legibles es de lo primero que hace un atacante con cualquier cuenta válida, como la de piotr tras el [paso 2 del replay](index.html#paso=2).']
+  ],
+  script:[
+    {t:'cmd', s:'icacls \\\\fs01.nordwind.local\\Management'},
+    {t:'out', lines:[['hl','\\\\fs01.nordwind.local\\Management NORDWIND\\DL_FS01_Management_Modify:(OI)(CI)(M)'],'                                  BUILTIN\\Administrators:(OI)(CI)(F)','                                  NT AUTHORITY\\SYSTEM:(OI)(CI)(F)']},
+    {t:'cm', s:'# (M) = Modify, (F) = Full control. (OI)(CI) = la entrada se hereda a ficheros y subcarpetas.'},
+    {t:'wire', title:'Comprobación de acceso · ocurre dentro de FS01, no viaja nada', parts:[['token de anna','su SID + Domain Users + G_Management_Users + DL_FS01_Management_Modify + …'],['ACL de la carpeta','DL_FS01_Management_Modify → Modify · Administrators → Full · SYSTEM → Full'],['resultado','un SID del token coincide con una ACE que permite: acceso Modify','warn']], note:'El orden de evaluación es: denegaciones explícitas, permisos explícitos, denegaciones heredadas, permisos heredados. Si se acaba la lista sin conceder lo pedido, se deniega.'},
+    {t:'cmd', s:'dir \\\\fs01.nordwind.local\\Management'},
+    {t:'pkt', from:'cl', to:'fs', label:'SMB: abrir \\Management', cls:'req'},
+    {t:'beam', from:'fs', to:'folder', color:'var(--green)'},
+    {t:'pkt', from:'fs', to:'cl', label:'concedido: Modify', cls:'ok'},
+    {t:'out', lines:['Mode          LastWriteTime   Length Name','----          -------------   ------ ----','d-----   11/02/2026   10:14          Presupuestos','-a----   11/12/2026   17:40    48211 cierre-Q3.xlsx']},
+    {t:'set', f:G=>{G.rm('folder','target');G.add('folder','ok');G.sub('folder','acceso: Modify');G.edge('a3','dl','folder','ACE: Modify','ok');}},
+    {t:'cmd', s:'dir \\\\fs01.nordwind.local\\HR'},
+    {t:'pkt', from:'cl', to:'fs', label:'SMB: abrir \\HR', cls:'req'},
+    {t:'pkt', from:'fs', to:'cl', label:'ACCESS_DENIED', cls:'deny'},
+    {t:'out', lines:[['err','dir : Access to the path \'\\\\fs01.nordwind.local\\HR\' is denied.']]},
+    {t:'cm', s:'# El mismo ticket y el mismo token. La ACL de \\HR solo nombra a DL_FS01_HR_Modify, y anna no lo tiene.'}
+  ]
+},
+{
+  chip:'Herencia', title:'Los objetos del directorio también tienen ACL, y se heredan', need:OBJ,
+  sum:'Una cuenta de usuario, un grupo o una OU tienen su propia ACL, igual que una carpeta. Una entrada puesta en una OU con herencia activada se propaga a los objetos que contiene. Así se delega la administración sin hacer a nadie administrador del dominio.',
+  cards:[
+    ['Qué pasa','En `OU=Management` hay una ACE que concede al grupo de IT el derecho de restablecer contraseñas, marcada para aplicarse a los usuarios que cuelgan de la OU. La cuenta de anna no tiene esa ACE escrita: la hereda de su contenedor. Si anna se mueve a otra OU, la pierde.'],
+    ['Por qué está diseñado así','Permite repartir tareas por partes del árbol: soporte restablece contraseñas en una OU, RR. HH. edita teléfonos en otra, y nadie necesita ser Domain Admin. Por eso la estructura de OU se diseña pensando en quién administra qué, no en el organigrama.'],
+    ['Qué ataque nace aquí','Un derecho sobre un objeto es poder sobre esa identidad. La ACE que planté de piotr sobre robert es de este mismo tipo, y con ella piotr le cambia la contraseña: [paso 4 del replay](index.html#paso=4). `GenericAll`, `WriteDacl` y `WriteOwner` son los eslabones de casi toda ruta de escalada.']
+  ],
+  script:[
+    {t:'cm', s:'# Ejemplo de delegación para explicar el mecanismo (no forma parte del sabotaje del lab).'},
+    {t:'cmd', host:'dc', s:'(Get-Acl "AD:\\CN=anna.nowak,OU=Management,OU=Users,OU=Nordwind,DC=nordwind,DC=local").Access | Where-Object IsInherited | Select-Object IdentityReference, ActiveDirectoryRights, ObjectType, IsInherited'},
+    {t:'set', f:G=>{G.add('ou','target');G.sub('ou','ACE delegada aquí');}},
+    {t:'out', lines:['IdentityReference    ActiveDirectoryRights ObjectType                           IsInherited','-----------------    --------------------- ----------                           -----------',['hl','NORDWIND\\G_IT_Users          ExtendedRight 00299570-246d-11d0-a768-00aa006e0529        True'],['dim','… y las ACE heredadas por defecto del dominio']]},
+    {t:'cm', s:'# 00299570-… es el identificador del derecho extendido Reset Password.'},
+    {t:'wire', title:'Una ACE por dentro · así se guarda en la OU', parts:[['a quién','SID de G_IT_Users'],['tipo','permitir'],['qué','derecho extendido Reset Password'],['herencia','se aplica a los objetos descendientes de clase user','warn']], note:'Los indicadores de herencia deciden hasta dónde llega una ACE: solo este objeto, este y sus hijos, o solo los hijos de una clase concreta. BloodHound lee estas mismas ACE por LDAP para dibujar sus aristas.'},
+    {t:'beam', from:'ou', to:'anna', color:'var(--amber)'},
+    {t:'set', f:G=>{G.edge('inh','ou','anna','ACE heredada','');G.sub('anna','hereda de su OU');G.rm('ou','target');}},
+    {t:'cm', s:'# IsInherited = True: la ACE vive en la OU y anna la recibe por estar dentro.'},
+    {t:'cm', s:'# Compara: la ACE piotr → robert del ataque era explícita, puesta directamente sobre la cuenta de robert.'}
+  ]
+},
+{
+  chip:'AdminSDHolder', title:'Donde la herencia se corta: AdminSDHolder y SDProp', need:OBJ,
+  sum:'Si los administradores heredaran permisos de su OU, cualquier delegación descuidada daría control sobre ellos. Por eso AD trata aparte a las cuentas y grupos privilegiados: les desactiva la herencia y cada hora les impone la ACL de una plantilla.',
+  cards:[
+    ['Qué pasa','El proceso SDProp se ejecuta cada 60 minutos. Localiza los grupos protegidos y sus miembros, los marca con `adminCount=1`, les copia la ACL del objeto `AdminSDHolder` y desactiva la herencia. Cualquier ACE añadida a mano desaparece en la siguiente pasada.'],
+    ['Por qué está diseñado así','Es un seguro contra errores de delegación: aunque un Domain Admin viva en una OU donde soporte puede restablecer contraseñas, esa ACE no le llega. El control sobre los objetos más críticos se define en un único sitio en vez de depender de dónde esté cada cuenta.'],
+    ['Qué ataque nace aquí','Es justo lo que me encontré: el `GenericAll` plantado sobre Domain Admins fue borrado ([paso 5 del replay](index.html#paso=5)) y hubo que ganarle la carrera a SDProp ([paso 6](index.html#paso=6)). Al revés, una ACE añadida en el propio AdminSDHolder se propaga sola cada hora: persistencia.']
+  ],
+  script:[
+    {t:'cmd', host:'dc', s:'Get-ADObject -LDAPFilter "(adminCount=1)" | Select-Object Name, ObjectClass'},
+    {t:'out', lines:['Name               ObjectClass','----               -----------','Administrator      user','krbtgt             user',['hl','Domain Admins      group'],'Administrators     group','Enterprise Admins  group','Schema Admins      group',['dim','… y el resto de grupos protegidos']]},
+    {t:'set', f:G=>{G.add('da','shield');G.sub('da','adminCount=1');G.rm('krbtgt','key');G.add('krbtgt','shield');G.sub('krbtgt','adminCount=1');}},
+    {t:'cmd', host:'dc', s:'(Get-Acl "AD:\\CN=Domain Admins,CN=Users,DC=nordwind,DC=local").AreAccessRulesProtected'},
+    {t:'out', lines:[['hl','True']]},
+    {t:'cm', s:'# True = herencia desactivada. Lo que se delegue en su contenedor no le afecta.'},
+    {t:'set', f:G=>{G.add('sdh','target');G.sub('sdh','ACL de referencia');G.sdprop('SDProp · cada 60 min impone la ACL de la plantilla');}},
+    {t:'beam', from:'sdh', to:'da', color:'var(--blue)'},
+    {t:'set', f:G=>{G.edge('sd','sdh','da','copia','blue');}},
+    {t:'wire', title:'SDProp · ocurre dentro de DC01, no viaja nada', parts:[['1 · busca','grupos protegidos y todos sus miembros, también anidados'],['2 · compara','la ACL de cada uno con la de CN=AdminSDHolder,CN=System'],['3 · sobrescribe','si difiere: copia la ACL, desactiva la herencia, pone adminCount=1','warn']], note:'Dos mecanismos opuestos conviven: la herencia propaga ACE de arriba abajo por el árbol; SDProp las impone desde una plantilla saltándose el árbol. Saber cuál de los dos manda sobre un objeto explica muchos ACCESS_DENIED.'},
+    {t:'cm', s:'# anna (paso 8) recibe permisos de su OU. Domain Admins los recibe de AdminSDHolder. Nunca de los dos.'}
+  ]
+},
+{
+  chip:'Mapa', title:'Todo junto: cada ataque es un mecanismo legítimo usado al revés', need:'RESUMEN',
+  sum:'En un día normal anna ha usado cuatro claves, tres intercambios de Kerberos, una cadena de grupos y dos ACL. Ninguna de esas piezas es un fallo. Cada paso del ataque del replay consiste en aprovechar una de ellas cuando está mal configurada.',
+  cards:[
+    ['Autenticación: Kerberos','Tres intercambios: AS (contraseña → TGT), TGS (TGT → ticket de servicio), AP (ticket → sesión). Para entender cualquier mensaje pregunta con la clave de quién va cifrado: eso dice quién puede leerlo, quién puede fabricarlo y qué se puede crackear.'],
+    ['Autorización: grupos y ACL','El PAC lleva los SID de tus grupos dentro del ticket; el servidor los compara con la ACL del recurso. AGDLP ordena esa relación: personas en grupos por rol, roles en grupos por permiso, y solo estos en la ACL.'],
+    ['Control: permisos sobre objetos','Los objetos del directorio tienen ACL que dan poder sobre identidades. Se propagan por herencia desde las OU, salvo en los objetos protegidos, que las reciben de AdminSDHolder. Ahora vuelve al [replay del ataque](index.html) y léelo con estos ojos.']
+  ],
+  script:[
+    {t:'set', f:G=>{G.sub('cl','caché completa');G.add('cl','ok');G.sub('fsacc','clave de FS01');}},
+    {t:'wire', title:'Las cuatro claves de hoy', parts:[['clave de anna','la tienen anna y el KDC · protege el AS-REP','kU'],['clave de krbtgt','solo el KDC · protege todos los TGT','kK'],['clave de FS01$','FS01 y el KDC · protege los tickets para FS01','kS'],['claves de sesión A y B','temporales · protegen los autenticadores','kT']], note:'Las tres primeras son claves a largo plazo: salen de una contraseña y viven en el directorio. Son las que busca un atacante. Las de sesión caducan con el ticket.'},
+    {t:'cm', s:'# MECANISMO LEGÍTIMO                      →  ATAQUE (paso del replay)'},
+    {t:'out', lines:[
+      'AS-REP cifrado con la clave del usuario   →  AS-REP Roasting          (2)',
+      'Ticket cifrado con la clave del servicio  →  Kerberoasting            (3)',
+      'ACE sobre un objeto usuario               →  ForceChangePassword      (4)',
+      'SDProp impone la ACL de AdminSDHolder     →  la ACL plantada se borra (5)',
+      'SDProp solo pasa cada 60 minutos          →  carrera contra SDProp    (6)',
+      'Replicación entre controladores           →  DCSync                   (7)',
+      'TGT validado solo con la clave de krbtgt  →  Golden Ticket            (7)',
+      'Directorio legible por LDAP               →  BloodHound               (8)']},
+    {t:'cm', s:'# Y los que no salen en el replay pero ya puedes explicar:'},
+    {t:'out', lines:[
+      ['dim','La clave es la credencial                 →  Pass-the-Hash / Overpass-the-Hash'],
+      ['dim','Ticket + clave de sesión en memoria       →  Pass-the-Ticket'],
+      ['dim','El servicio se fía de su propia clave     →  Silver Ticket'],
+      ['dim','ACE en AdminSDHolder                      →  persistencia vía SDProp']]},
+    {t:'cm', s:'# Fin. Abajo tienes seis preguntas para comprobar que lo has entendido.'}
+  ]
+}
+];
+
+/* ============================================================
+   ESQUEMA (SVG)
+   ============================================================ */
+const ICONS={
+  user:'M0-9a5 5 0 1 0 .01 0M-9 11c0-6 4-8 9-8s9 2 9 8',
+  group:'M-5-8a4 4 0 1 0 .01 0M6-6a3.5 3.5 0 1 0 .01 0M-13 10c0-5 3-7 8-7s8 2 8 7M5 3c5 0 8 2 8 6',
+  pc:'M-11-10h22v15h-22zM-5 11h10M0 5v6',
+  folder:'M-12-9h8l3 3h13v15h-24z'
+};
+let L={};
+function baseClass(id){return 'n '+(NODES[id].kind==='svc'?'svc':'')+(INFO[id]?' click':'');}
+function build(){
+  const grid=el('g',{class:'grid'});
+  for(let x=40;x<900;x+=40)el('line',{x1:x,y1:0,x2:x,y2:566},grid);
+  for(let y=40;y<566;y+=40)el('line',{x1:0,y1:y,x2:900,y2:y},grid);
+  // DC01: el KDC arriba y el directorio debajo
+  const kz=el('rect',{class:'zone',x:300,y:36,width:320,height:164,rx:14}); clickable(kz,'kdc','KDC de DC01');
+  el('text',{class:'zlabel',x:314,y:56},svg,'DC01 · KDC (PUERTO 88)');
+  const bd=el('rect',{class:'boundary',x:30,y:205,width:680,height:351,rx:16}); clickable(bd,'dir','El directorio');
+  el('text',{class:'blabel',x:47,y:227},svg,'DC01 · DIRECTORIO NORDWIND.LOCAL (ntds.dit)');
+  const fz=el('rect',{class:'zone',x:735,y:36,width:140,height:520,rx:14}); clickable(fz,'fs','Servidor FS01');
+  el('text',{class:'zlabel',x:747,y:56},svg,'FS01');
+  el('text',{class:'tagnote',x:747,y:546},svg,'servidor ilustrativo');
+  el('line',{class:'net',x1:103,y1:120,x2:300,y2:120});
+  el('line',{class:'net',x1:620,y1:120,x2:778,y2:120});
+  for(const o of ZONES){const r=el('rect',{class:'ou',x:o.x,y:o.y,width:o.w,height:o.h,rx:10});clickable(r,o.k,o.label);el('text',{class:'oulabel',x:o.x+9,y:o.y+15},svg,o.label);}
+  L.beams=el('g',{}); L.edges=el('g',{});
+  L.sd=el('g',{id:'sdprop'});
+  el('circle',{class:'ring',cx:346,cy:528,r:6},L.sd);
+  L.sdt=el('text',{x:358,y:531.5},L.sd,'');
+  L.nodes={};
+  for(const id in NODES){
+    const n=NODES[id], g=el('g',{class:baseClass(id),transform:`translate(${n.x},${n.y})`});
+    if(n.kind==='user')el('circle',{class:'shape',r:25},g);
+    else if(n.kind==='group')el('rect',{class:'shape',x:-26,y:-26,width:52,height:52,rx:16},g);
+    else el('rect',{class:'shape',x:-27,y:-24,width:54,height:48,rx:9},g);
+    if(n.glyph)el('text',{class:'glyph',y:5},g,n.glyph);
+    else el('path',{class:'ico',d:ICONS[n.kind]},g);
+    el('text',{class:'lb',y:42},g,n.label);
+    const sb=el('text',{class:'sb',y:55},g,n.sub);
+    if(INFO[id])clickable(g,id,n.label);
+    L.nodes[id]={g,sb};
+  }
+  L.pk=el('g',{});
+}
+const EMPTY='<em>vacía: aún no ha iniciado sesión</em>';
+const G={
+  add(id,c){L.nodes[id].g.classList.add(c);},
+  rm(id,c){L.nodes[id].g.classList.remove(c);},
+  sub(id,t){L.nodes[id].sb.textContent=t;},
+  loot(t,c){const box=$('loot');if(box.firstElementChild&&box.firstElementChild.tagName==='EM')box.textContent='';const s=document.createElement('span');if(c)s.className=c;s.textContent=t;box.appendChild(s);},
+  sdprop(t){L.sd.classList.toggle('on',!!t);if(t)L.sdt.textContent=t;},
+  edge(id,a,b,label,cls){
+    let g=L.edges.querySelector('[data-id="'+id+'"]'); if(g)g.remove();
+    g=el('g',{class:'e '+cls,'data-id':id},L.edges);
+    const A=NODES[a],B=NODES[b],dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy),ux=dx/d,uy=dy/d;
+    const x1=A.x+ux*31,y1=A.y+uy*31,x2=B.x-ux*38,y2=B.y-uy*38;
+    el('line',{x1,y1,x2,y2},g);
+    const px=-uy,py=ux,tx=B.x-ux*30,ty=B.y-uy*30;
+    el('polygon',{points:`${tx},${ty} ${x2+px*5},${y2+py*5} ${x2-px*5},${y2-py*5}`},g);
+    el('text',{x:(A.x+B.x)/2,y:(A.y+B.y)/2-9,'text-anchor':'middle'},g,label);
+  }
+};
+function resetGraph(){
+  for(const id in NODES){L.nodes[id].g.setAttribute('class',baseClass(id));L.nodes[id].sb.textContent=NODES[id].sub;}
+  L.edges.textContent='';L.beams.textContent='';L.pk.textContent='';
+  G.sdprop('');
+  $('loot').innerHTML=EMPTY;
+}
+
+/* ============================================================
+   MOTOR DE REPRODUCCIÓN (el mismo que index.html)
+   ============================================================ */
+const CANCEL=Symbol('cancel');
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let cur=-1, run=0, busy=false, paused=false, instant=false, speed=1;
+const term=$('term');
+
+function wait(ms,my){
+  if(instant||reduce) return my===run?Promise.resolve():Promise.reject(CANCEL);
+  return new Promise((res,rej)=>{
+    let left=ms/speed,last=performance.now();
+    (function tick(){
+      if(my!==run)return rej(CANCEL);
+      const now=performance.now(); if(!paused)left-=now-last; last=now;
+      if(left<=0)return res(); setTimeout(tick,16);
+    })();
+  });
+}
+function line(cls){const d=document.createElement('div');d.className='ln '+(cls||'');term.appendChild(d);term.scrollTop=term.scrollHeight;return d;}
+const PROMPT={cl:['PS C:\\Users\\anna.nowak> ',''],dc:['PS C:\\> ','dc']};
+const TITLE={cl:'CL01 — PowerShell (anna.nowak)',dc:'DC01 — PowerShell (admin)'};
+function chip(a,parent,right){
+  const txt=(right?'→ ':'← ')+a.label, w=txt.length*7+18;
+  const g=el('g',{class:'pk '+a.cls},parent);
+  el('rect',{x:-w/2,y:-11,width:w,height:22,rx:6},g);el('text',{},g,txt);
+  return {g,w};
+}
+async function doPkt(a,my){
+  if(instant||reduce)return;
+  const A=NODES[a.from],B=NODES[a.to],right=B.x>A.x,dir=right?1:-1;
+  const c=chip(a,L.pk,right), x0=A.x+dir*(32+c.w/2), x1=B.x-dir*(32+c.w/2);
+  await tween(c.g,x0,A.y-42,x1,B.y-42,1700,my);
+  await wait(550,my); c.g.remove();
+  await wait(250,my);
+}
+async function doBeam(a,my){
+  if(instant||reduce)return;
+  const A=NODES[a.from],B=NODES[a.to];
+  const l=el('line',{class:'beam',x1:A.x,y1:A.y,x2:B.x,y2:B.y,stroke:a.color},L.beams);
+  setTimeout(()=>l.remove(),1700); await wait(600,my);
+}
+function rich(node,text){
+  node.textContent='';
+  text.split('`').forEach((s,i)=>{
+    if(i%2){const c=document.createElement('code');c.textContent=s;node.appendChild(c);return;}
+    const re=/\[([^\]]+)\]\(([^)]+)\)/g; let last=0,m;
+    while((m=re.exec(s))){
+      node.appendChild(document.createTextNode(s.slice(last,m.index)));
+      const a=document.createElement('a');a.href=m[2];a.textContent=m[1];node.appendChild(a);
+      last=re.lastIndex;
+    }
+    node.appendChild(document.createTextNode(s.slice(last)));
+  });
+}
+function idleWire(){$('wire').innerHTML='<div class="wire-n idle">Aquí se desglosa cada mensaje del paso: qué lleva dentro y con la clave de quién va cifrado cada parte. El color del borde izquierdo indica esa clave.</div>';}
+async function doCmd(a,my){
+  const h=a.host||'cl'; $('termtitle').textContent=TITLE[h];
+  const d=line('cmd'),ps=document.createElement('span');ps.className='ps '+PROMPT[h][1];ps.textContent=PROMPT[h][0];d.appendChild(ps);
+  const t=document.createElement('span');t.className='typing';d.appendChild(t);
+  await wait(250,my);
+  for(let i=0;i<a.s.length;i+=2){t.textContent=a.s.slice(0,i+2);term.scrollTop=term.scrollHeight;await wait(20,my);}
+  t.textContent=a.s; await wait(350,my); t.className='';
+}
+async function doOut(a,my){
+  for(const l of a.lines){const [c,s]=Array.isArray(l)?l:['',l];line(c).textContent=s;await wait(130,my);}
+  await wait(350,my);
+}
+function tween(g,x0,y0,x1,y1,dur,my){
+  return new Promise((res,rej)=>{
+    let t=0,last=performance.now();
+    (function f(now){
+      if(my!==run){g.remove();return rej(CANCEL);}
+      if(!paused)t+=(now-last)*speed; last=now;
+      const p=Math.min(1,t/dur),e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+      g.setAttribute('transform',`translate(${x0+(x1-x0)*e},${y0+(y1-y0)*e})`);
+      if(p<1)requestAnimationFrame(f);else res();
+    })(performance.now());
+  });
+}
+
+/* ---- ficha explicativa (al pulsar un elemento del grafo) ---- */
+let fichaResume=false, fichaSel=null;
+function openFicha(key){
+  const d=INFO[key]; if(!d)return;
+  if(busy&&!paused){paused=true;ui();fichaResume=true;} else fichaResume=false;
+  if(fichaSel)fichaSel.classList.remove('sel');
+  fichaSel=[...svg.querySelectorAll('.click')].find(e=>e.__key===key)||null;
+  if(fichaSel)fichaSel.classList.add('sel');
+  $('f-type').textContent=d.type; $('f-title').textContent=d.title; $('f-dn').textContent=d.dn;
+  const body=$('f-body'); body.textContent='';
+  for(const [h,p] of d.secs){const H=document.createElement('h4');H.textContent=h;const P=document.createElement('p');rich(P,p);body.append(H,P);}
+  body.scrollTop=0;
+  const ff=$('ficha'); ff.hidden=false; $('f-close').focus();
+}
+function closeFicha(){
+  const ff=$('ficha'); if(ff.hidden)return;
+  ff.hidden=true;
+  if(fichaSel){fichaSel.classList.remove('sel');fichaSel=null;}
+  if(fichaResume){paused=false;fichaResume=false;ui();}
+}
+function doWire(a){
+  const box=$('wire'); if(box.firstElementChild&&box.firstElementChild.classList.contains('idle'))box.textContent='';
+  const w=document.createElement('div');w.className='wmsg';box.appendChild(w);
+  const t=document.createElement('div');t.className='wire-t';t.textContent=(box.childElementCount)+' · '+a.title;w.appendChild(t);
+  const ps=document.createElement('div');ps.className='parts';w.appendChild(ps);
+  for(const [k,v,c] of a.parts){const p=document.createElement('div');p.className='part '+(c||'');const b=document.createElement('b');b.textContent=k;const s=document.createElement('span');s.textContent=v;p.append(b,s);ps.appendChild(p);}
+  const n=document.createElement('div');n.className='wire-n';n.textContent=a.note;w.appendChild(n);
+}
+async function exec(a,my){
+  switch(a.t){
+    case 'cmd': return doCmd(a,my);
+    case 'out': return doOut(a,my);
+    case 'cm':  line('cm').textContent=a.s; return wait(900,my);
+    case 'pkt': return doPkt(a,my);
+    case 'beam':return doBeam(a,my);
+    case 'wire':doWire(a); return wait(1300,my);
+    case 'set': a.f(G); return wait(500,my);
+    case 'wait':return wait(a.ms,my);
+  }
+}
+function meta(i){
+  const s=STEPS[i];
+  $('i-num').textContent='PASO '+(i+1)+' / '+STEPS.length; $('i-title').textContent=s.title; $('i-need').textContent=s.need; $('i-sum').textContent=s.sum;
+  s.cards.forEach((c,k)=>{$('c'+(k+1)+'t').textContent=c[0];rich($('c'+(k+1)),c[1]);});
+}
+function ui(){
+  [...$('steps').children].forEach((c,k)=>{c.className='chip'+(k===cur?' cur':k<cur?' done':'')+(!busy&&k===cur+1?' nextup':'');});
+}
+async function go(i,opt){
+  opt=opt||{}; closeFicha(); const my=++run; cur=i; paused=false; instant=!!opt.instant;
+  const st=$('start'); if(st)st.remove();
+  resetGraph(); idleWire();
+  for(let k=0;k<i;k++)for(const a of STEPS[k].script)if(a.t==='set')a.f(G);
+  term.textContent=''; $('termtitle').textContent=TITLE.cl; meta(i);
+  busy=true; ui();
+  if(history.replaceState)history.replaceState(null,'','#paso='+(i+1));
+  try{
+    for(const a of STEPS[i].script)await exec(a,my);
+    busy=false; instant=false; ui();
+  }catch(e){ if(e!==CANCEL)throw e; }
+}
+function toggle(){
+  if(cur<0)return go(0);
+  if(busy){paused=!paused;ui();return;}
+  if(cur<STEPS.length-1)go(cur+1);
+}
+
+/* ============================================================
+   ARRANQUE
+   ============================================================ */
+build(); idleWire(); meta(0);
+STEPS.forEach((s,i)=>{const b=document.createElement('button');b.className='chip';b.setAttribute('role','tab');const n=document.createElement('b');n.textContent=i+1;b.append(n,s.chip);b.onclick=()=>{if(i===cur&&busy)go(i,{instant:true});else go(i);};$('steps').appendChild(b);});
+$('startbtn').onclick=()=>go(0);
+$('f-close').onclick=closeFicha;
+$('ficha').addEventListener('click',e=>{if(e.target===$('ficha'))closeFicha();});
+const step=d=>{if(busy&&d>0)return go(cur,{instant:true});const n=cur+d;if(n>=0&&n<STEPS.length)go(n);};
+addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!$('ficha').hidden){e.preventDefault();closeFicha();return;}
+  if(e.target.closest('a')||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(e.key==='ArrowRight'){e.preventDefault();step(1);}
+  else if(e.key==='ArrowLeft'){e.preventDefault();step(-1);}
+  else if(e.key===' '){e.preventDefault();toggle();}
+  else if((e.key==='r'||e.key==='R')&&cur>=0){go(cur);}
+});
+ui();
+// Enlace directo a un paso ya resuelto: index.html#paso=5
+const m=location.hash.match(/paso=(\d+)/);
+if(m){const i=Math.min(STEPS.length,Math.max(1,+m[1]))-1;if(/anim/.test(location.hash))go(i);else go(i,{instant:true});}
+
+// glosario: botones que abren la ficha de cada concepto
+for(const [k,t] of GLOSS){const b=document.createElement('button');b.type='button';b.textContent=t;b.onclick=()=>openFicha(k);$('gloss').appendChild(b);}
+</script>
+</body>
+</html>
