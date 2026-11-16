@@ -8,3 +8,6 @@ VMs/
 # basura del SO
 .DS_Store
 Thumbs.db
+# secretos y logs
+.env
+*.log

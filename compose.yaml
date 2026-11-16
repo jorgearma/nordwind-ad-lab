@@ -3,13 +3,23 @@ services:
     build: .
     image: nordwind-ad-lab-web:latest
     container_name: nordwind-web
-    ports:
-      - "8080:8080"        # host:contenedor  → http://localhost:8080
     restart: unless-stopped
-    read_only: true        # sistema de ficheros del contenedor en solo lectura
-    tmpfs:
-      - /tmp               # nginx necesita escribir pid y caché temporal aquí
-    cap_drop:
-      - ALL                # sin capabilities de Linux: no las necesita
-    security_opt:
-      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8083:8080"   # SOLO localhost: Docker se salta ufw. Fuera entra por el túnel
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]   # 127.0.0.1, no localhost (IPv6)
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    mem_limit: 128m
+    # --- bloque de hardening (plantilla §3) ---
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

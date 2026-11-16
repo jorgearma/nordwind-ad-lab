@@ -35,7 +35,7 @@ in Spanish.
 ### Run the site locally with Docker
 
 ```bash
-docker compose up -d --build   # → http://localhost:8080
+docker compose up -d --build   # → http://127.0.0.1:8083
 docker compose down            # stop and remove
 ```
 
