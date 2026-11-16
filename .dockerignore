@@ -1,0 +1,12 @@
+.git
+.gitignore
+docs/
+scripts/
+*.md
+LICENSE
+VMs/
+*.iso
+*.vdi
+*.vmdk
+*.vhd
+*.ova

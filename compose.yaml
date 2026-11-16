@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    image: nordwind-ad-lab-web:latest
+    container_name: nordwind-web
+    ports:
+      - "8080:8080"        # host:contenedor  → http://localhost:8080
+    restart: unless-stopped
+    read_only: true        # sistema de ficheros del contenedor en solo lectura
+    tmpfs:
+      - /tmp               # nginx necesita escribir pid y caché temporal aquí
+    cap_drop:
+      - ALL                # sin capabilities de Linux: no las necesita
+    security_opt:
+      - no-new-privileges:true

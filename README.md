@@ -32,6 +32,16 @@ Both animated pages share one stylesheet and one playback engine
 its own data (nodes, info cards, scenes) and drawing code. No build step, no dependencies; content
 in Spanish.
 
+### Run the site locally with Docker
+
+```bash
+docker compose up -d --build   # → http://localhost:8080
+docker compose down            # stop and remove
+```
+
+Only the static site is containerized (nginx, non-root, read-only filesystem). The AD lab itself
+(Windows Server DC + Windows 11 client) runs in VirtualBox, see [Stack](#stack).
+
 ## Scenario
 
 **Nordwind Logistics** — a fictional logistics company. A realistic domain environment
