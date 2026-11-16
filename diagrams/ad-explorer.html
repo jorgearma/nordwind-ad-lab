@@ -108,10 +108,21 @@
   .note.info .lbl{color:var(--info)}
   .note .lbl{font-weight:700;display:block;margin-bottom:.15rem;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase}
   .hintbar{font-size:.8rem;color:var(--muted);margin-top:.8rem;text-align:center}
+  .sitenav{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem 1rem;margin:0 0 1.1rem;padding:.5rem .8rem;background:var(--surface);border:1px solid var(--border);border-radius:10px;font:600 .76rem var(--mono)}
+  .sitenav a{color:var(--accent);text-decoration:none}.sitenav a:hover{text-decoration:underline}
+  .sitenav .sn-pos{color:var(--muted);flex:1;min-width:0}.sitenav .sn-pos b{color:var(--fg)}
+  .serie{margin:1.2rem 0 0;padding:.6rem .8rem;border:1px dashed var(--border-strong);border-radius:10px;color:var(--muted);font-size:.84rem}
+  .serie b{color:var(--fg)}.serie a{color:var(--accent);text-decoration:none}.serie a:hover{text-decoration:underline}
+  .serie .here{color:var(--warn);font-weight:700}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
 <div class="wrap">
+  <nav class="sitenav" aria-label="Serie Nordwind AD Lab">
+    <a href="../index.html">← Inicio</a>
+    <span class="sn-pos">Nordwind AD Lab · <b>3 de 3</b> · Explorador del dominio</span>
+    <a href="../ataque.html">Volver al principio: el ataque →</a>
+  </nav>
   <h1>Explorador de Active Directory · Nordwind</h1>
   <p class="sub">Como el ADUC real: navega el <b>directorio</b> (OUs, usuarios, grupos, el DC), los <b>recursos de red</b> (shares) y <b>tu PC local</b>. Pulsa cualquier objeto para ver su papel y su riesgo. Fíjate en cómo cada mundo se divide por dentro.</p>
 
@@ -132,6 +143,7 @@
     </div>
   </div>
   <p class="hintbar">💡 Carpetas (azules/grises) = navegas dentro. Objetos (usuario, grupo, equipo, share…) = abren su ficha abajo.</p>
+  <p class="serie"><b>Orden de lectura:</b> <a href="../ataque.html">1 · el ataque</a> → <a href="../fundamentos.html">2 · cómo funciona AD</a> → <span class="here">3 · el explorador (estás aquí)</span>. Si prefieres aprender antes de ver cómo se rompe, léelo al revés.</p>
 </div>
 
 <script>

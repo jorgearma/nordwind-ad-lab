@@ -7,21 +7,30 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 ---
 
-## Live attack replay
+## Live site
 
-**[▶ Watch the attack replay](https://jorgearma.github.io/nordwind-ad-lab/)** — an animated,
-step-by-step reproduction of the Phase 3 chain (domain graph + terminal + Kerberos message
-breakdown), with *why it works*, *how to fix it* and *how to detect it* for every step.
+**[▶ Open the site](https://jorgearma.github.io/nordwind-ad-lab/)** — the front page, laid out like
+a small blog: the attack replay as the featured entry, then "How AD works inside" and the domain
+explorer. Source: [`index.html`](index.html) (static HTML; preview images in `assets/img/`). The
+three pages share a top bar ("← Inicio" + next entry) so they read as a series.
+
+**[▶ How AD works inside](https://jorgearma.github.io/nordwind-ad-lab/fundamentos.html)** — nobody
+attacks anything. It follows one user from logon to opening a share and breaks down Kerberos (KDC,
+AS/TGS/AP exchanges, TGT, service tickets, PAC), AGDLP, the access check, ACL inheritance and
+AdminSDHolder/SDProp, linking each mechanism to the attack step that abuses it. Terminal output is
+reconstructed and `FS01` is illustrative (the `DL_FS01_*` groups exist in the lab, the server does
+not). Source: [`fundamentos.html`](fundamentos.html).
+
+**[▶ Watch the attack replay](https://jorgearma.github.io/nordwind-ad-lab/ataque.html)** — an
+animated, step-by-step reproduction of the Phase 3 chain (domain graph + terminal + Kerberos
+message breakdown), with *why it works*, *how to fix it* and *how to detect it* for every step.
 It is a replay of the real attack on this lab, not a live AD in the browser; terminal output
-is reconstructed from the writeup with hashes redacted. Source: [`index.html`](index.html)
-(single file, no dependencies; content in Spanish).
+is reconstructed from the writeup with hashes redacted. Source: [`ataque.html`](ataque.html).
 
-**[▶ How AD works inside](https://jorgearma.github.io/nordwind-ad-lab/fundamentos.html)** — the
-companion page: the same engine, but nobody attacks anything. It follows one user from logon to
-opening a share and breaks down Kerberos (KDC, AS/TGS/AP exchanges, TGT, service tickets, PAC),
-AGDLP, the access check, ACL inheritance and AdminSDHolder/SDProp, linking each mechanism to the
-attack step that abuses it. Terminal output is reconstructed and `FS01` is illustrative (the
-`DL_FS01_*` groups exist in the lab, the server does not). Source: [`fundamentos.html`](fundamentos.html).
+Both animated pages share one stylesheet and one playback engine
+([`assets/lab.css`](assets/lab.css), [`assets/engine.js`](assets/engine.js)); each page only holds
+its own data (nodes, info cards, scenes) and drawing code. No build step, no dependencies; content
+in Spanish.
 
 ## Scenario
 

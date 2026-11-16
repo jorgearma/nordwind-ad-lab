@@ -7,203 +7,8 @@
 <meta name="description" content="Explicación animada, paso a paso, de cómo funciona Active Directory en un día normal: KDC, TGT, tickets de servicio, PAC, AGDLP, ACL, herencia de permisos y AdminSDHolder, enlazado con el ataque que nace de cada mecanismo.">
 <meta property="og:title" content="Nordwind AD Lab — cómo funciona Active Directory por dentro">
 <meta property="og:description" content="Kerberos, AGDLP y propagación de permisos explicados siguiendo a un usuario desde que inicia sesión hasta que abre una carpeta.">
+<link rel="stylesheet" href="assets/lab.css">
 <style>
-:root{
-  --bg:#080c12; --panel:#0e141e; --panel2:#121a27; --line:#1d2838; --line2:#2b3a50;
-  --fg:#d9e1ee; --muted:#7f8da3; --dim:#56657c;
-  --red:#ff4d5e; --red-soft:#3a0f17; --amber:#ffb454; --green:#3ddc97; --blue:#5ab0ff; --violet:#b79cff;
-  --mono:ui-monospace,"JetBrains Mono","Fira Code","Cascadia Code",Menlo,Consolas,monospace;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-}
-*{box-sizing:border-box}
-html{color-scheme:dark}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);
-  background-image:radial-gradient(1200px 500px at 15% -10%,rgba(90,176,255,.07),transparent 60%),radial-gradient(900px 500px at 100% 0,rgba(255,77,94,.06),transparent 60%)}
-.wrap{max-width:1360px;margin:0 auto;padding:12px 16px 40px}
-a{color:var(--blue)}
-code{font-family:var(--mono);font-size:.88em;background:#1a2433;border:1px solid var(--line);border-radius:4px;padding:0 .3em;color:#e8eefb}
-
-button{font:inherit;color:inherit;cursor:pointer}
-
-/* cabecera compacta (una línea) */
-.topbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 14px;margin-bottom:10px}
-.topbar h1{margin:0;font-size:clamp(1.02rem,2vw,1.28rem);font-weight:700;letter-spacing:-.01em;line-height:1.25}
-.topbar h1 em{font-style:normal;color:var(--red)}
-.tb-sub{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .5rem;color:var(--muted);font-size:.78rem}
-.tb-sub .tag{display:inline-flex;align-items:center;gap:.35rem;color:var(--amber);font:600 .72rem var(--mono)}
-.tb-sub .tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--amber)}
-.tb-sub a{color:var(--blue);text-decoration:none}.tb-sub a:hover{text-decoration:underline}
-.tb-sub .sep{color:var(--line2)}
-.steps{display:flex;flex-wrap:wrap;gap:3px;flex:1;min-width:0}
-.stepsbar{padding:.5rem .55rem}
-.chip{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center;gap:.35rem;cursor:pointer;
-  background:linear-gradient(#1b2637,#141d2b);border:1px solid #34445c;border-bottom-color:#0a0f17;border-radius:8px;
-  box-shadow:0 2px 0 #05080d,inset 0 1px 0 rgba(255,255,255,.07);padding:.38rem .4rem;font:700 .7rem var(--mono);color:#c3cee0;white-space:nowrap;
-  transition:transform .08s,box-shadow .08s,border-color .15s,color .15s}
-.chip b{display:inline-grid;place-items:center;width:1.35em;height:1.35em;border-radius:50%;background:#2b394f;color:#dbe4f2;font-size:.92em}
-.chip:hover{border-color:var(--blue);color:#fff;transform:translateY(-1px);box-shadow:0 3px 0 #05080d,inset 0 1px 0 rgba(255,255,255,.1)}
-.chip:active{transform:translateY(2px);box-shadow:0 0 0 #05080d}
-.chip:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-.chip.done{color:#ffb3bb;border-color:rgba(255,77,94,.45);background:linear-gradient(#2c1219,#200d13)}
-.chip.done b{background:var(--red);color:#fff}
-.chip.cur{color:#fff;border-color:var(--red);background:linear-gradient(#ff5d6c,#d93545);box-shadow:0 2px 0 #7a1622,0 0 14px rgba(255,77,94,.45)}
-.chip.cur b{background:#fff;color:#c92a3a}
-kbd{border:1px solid var(--line2);border-radius:4px;padding:0 .3em;color:var(--muted);font:.85em var(--mono)}
-
-/* escenario */
-.stage{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px}
-@media (max-width:980px){.stage{grid-template-columns:1fr}.card-h{flex-wrap:wrap}}
-.gwrap{overflow-x:auto;scrollbar-width:thin}
-@media (max-width:700px){svg#g{min-width:720px;max-height:none}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
-.card-h{display:flex;align-items:center;gap:.6rem;padding:.5rem .8rem;border-bottom:1px solid var(--line);font:600 .74rem var(--mono);color:var(--muted);letter-spacing:.03em;min-height:38px}
-.card-h .sp{flex:1}.card-h span{white-space:nowrap}#termtitle{overflow:hidden;text-overflow:ellipsis;min-width:0}
-.loot{display:flex;flex-wrap:wrap;gap:4px}
-.lootbar{display:flex;align-items:center;gap:.7rem;padding:.4rem .8rem;border-top:1px solid var(--line);font:600 .68rem var(--mono);color:var(--dim);letter-spacing:.04em;min-height:32px}
-.chip.nextup{border-color:var(--amber);color:var(--amber);animation:nx 1.4s ease-in-out infinite}.chip.nextup b{background:var(--amber);color:#201400}.chip.nextup::after{content:'▸';margin-left:.1rem}
-@keyframes nx{50%{box-shadow:0 2px 0 #05080d,0 0 0 4px rgba(255,180,84,.28)}}
-.loot span{font:600 .68rem var(--mono);color:#ffb3bb;background:var(--red-soft);border:1px solid rgba(255,77,94,.4);border-radius:5px;padding:0 .4rem;animation:pop .4s}
-.loot em{font-style:normal;color:var(--dim)}
-@keyframes pop{from{transform:scale(.6);opacity:0}}
-
-/* grafo */
-svg#g{display:block;width:100%;height:auto;max-height:min(62vh,600px);background:
-  linear-gradient(var(--panel),var(--panel)) padding-box}
-.grid line{stroke:#111a27;stroke-width:1}
-.boundary{fill:rgba(90,176,255,.025);stroke:#2c4466;stroke-width:1.5;stroke-dasharray:7 6;transition:stroke .8s,fill .8s}
-.blabel{fill:#5f7fa8;font:700 12px var(--mono);letter-spacing:.06em;transition:fill .8s}
-.ou{fill:rgba(255,255,255,.015);stroke:#243246;stroke-width:1;transition:stroke .8s}
-.oulabel{fill:var(--dim);font:600 11.5px var(--mono)}
-.net{stroke:#22324a;stroke-width:1.5;stroke-dasharray:2 5}
-.n .shape{fill:#131b28;stroke:#3b4b63;stroke-width:1.6;transition:fill .5s,stroke .5s}
-.n .ico{stroke:#8797ae;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:stroke .5s}
-.n .glyph{fill:#8797ae;font:700 13px var(--mono);text-anchor:middle}
-.n .lb{fill:#c7d2e2;font:700 12.5px var(--mono);text-anchor:middle;transition:fill .5s}
-.n .sb{fill:#8795ab;font:600 11px var(--mono);text-anchor:middle;transition:fill .5s}
-.n.atk .shape{stroke:var(--violet);fill:#191430}.n.atk .glyph{fill:var(--violet)}.n.atk .lb{fill:#d9ccff}
-.n.target .shape{stroke:var(--amber);animation:pulse .9s ease-in-out infinite}
-.n.target .sb{fill:var(--amber)}
-.n.owned .shape{stroke:var(--red);fill:var(--red-soft)}
-.n.owned .ico{stroke:#ff9aa5}.n.owned .lb{fill:#ffb3bb}.n.owned .sb{fill:var(--red)}
-.n.owned{filter:drop-shadow(0 0 7px rgba(255,77,94,.55))}
-.n.shield .shape{stroke:var(--blue);fill:#0f2238}.n.shield .sb{fill:var(--blue)}.n.shield .ico{stroke:#9fd0ff}
-.n.crown .shape{stroke-width:2.6}
-@keyframes pulse{0%,100%{stroke-width:1.6;stroke-opacity:1}50%{stroke-width:4.5;stroke-opacity:.55}}
-.o{fill:#131b28;stroke:#34435a;stroke-width:1.3;transition:stroke .4s,fill .4s}
-.o.ask{stroke:var(--amber)}.o.safe{stroke:var(--green);fill:#0f2a22}
-svg.pwned .o{stroke:var(--red);fill:var(--red-soft)}
-svg.pwned .boundary{stroke:var(--red);fill:rgba(255,77,94,.05)}
-svg.pwned .blabel{fill:var(--red)}
-svg.pwned .ou{stroke:rgba(255,77,94,.45)}
-svg.pwned .n:not(.atk) .shape{stroke:var(--red);fill:var(--red-soft)}
-svg.pwned .n:not(.atk) .ico{stroke:#ff9aa5}
-svg.pwned .n:not(.atk) .lb{fill:#ffb3bb}
-.e{color:var(--amber)}
-.e line{stroke:currentColor;stroke-width:2;stroke-dasharray:5 4}
-.e polygon{fill:currentColor}
-.e text{fill:currentColor;font:700 12px var(--mono);paint-order:stroke;stroke:var(--panel);stroke-width:4px}
-.e.red{color:var(--red)}.e.red line{stroke-dasharray:none}
-.e.dead{color:#6b7a91}
-.e{animation:fade .5s}
-@keyframes fade{from{opacity:0}}
-.beam{stroke-width:2;stroke-dasharray:4 4;animation:beam 1.6s forwards}
-@keyframes beam{0%{opacity:0}20%{opacity:1}100%{opacity:0}}
-.logh{fill:var(--muted);font:700 11px var(--mono);text-anchor:middle;letter-spacing:.04em}
-.pk rect{rx:6;stroke-width:1.2}
-.pk text{font:700 11.5px var(--mono);text-anchor:middle;dominant-baseline:central}
-.pk.req rect{fill:#10233a;stroke:var(--blue)}.pk.req text{fill:#b9dcff}
-.pk.hit rect{fill:#3a0f17;stroke:var(--red)}.pk.hit text{fill:#ffc2c8}
-.pk.no rect{fill:#161d29;stroke:#4a5a72}.pk.no text{fill:#93a1b7}
-.pk.deny rect{fill:#0f2238;stroke:var(--blue)}.pk.deny text{fill:#fff}
-#sdprop{opacity:0;transition:opacity .5s}
-#sdprop.on{opacity:1}
-#sdprop text{fill:var(--blue);font:600 10px var(--mono)}
-#sdprop .ring{fill:none;stroke:var(--blue);stroke-width:2;stroke-dasharray:22 12;transform-box:fill-box;transform-origin:center;animation:spin 2.4s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-#banner{opacity:0;transition:opacity .8s}
-svg.pwned #banner{opacity:1}
-#banner rect{fill:var(--red)}
-#banner text{fill:#fff;font:800 12px var(--mono);letter-spacing:.08em;text-anchor:middle}
-
-/* elementos pulsables del grafo + ficha explicativa */
-.click{cursor:pointer}
-.n.click .shape{transition:stroke .5s,fill .5s,filter .15s}
-.n.click:hover{filter:drop-shadow(0 0 6px rgba(90,176,255,.5))}
-.n.click:hover .shape,.n.click:focus-visible .shape{stroke:#fff}
-.ou.click,.boundary.click{transition:stroke .3s,fill .3s}
-.ou.click:hover{stroke:var(--blue);fill:rgba(90,176,255,.05)}
-.boundary.click:hover{stroke:var(--blue)}
-.o.click{cursor:pointer}.o.click:hover{stroke:#fff}
-svg [tabindex]:focus{outline:none}
-svg [tabindex]:focus-visible .shape{stroke:var(--blue)}
-.hint{margin-left:auto;color:var(--blue);letter-spacing:0;font-weight:600}
-@media (max-width:620px){.hint{display:none}}
-.card.rel{position:relative}
-.ficha{position:absolute;inset:0;z-index:6;background:var(--panel);display:flex;flex-direction:column;animation:fade .2s}
-.ficha[hidden]{display:none}
-.ficha-h{display:flex;align-items:flex-start;gap:.7rem;padding:.8rem .9rem .7rem;border-bottom:1px solid var(--line)}
-.ficha-h>div{flex:1;min-width:0}
-.f-type{font:700 .66rem var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--blue)}
-.f-title{margin:.12rem 0 0;font-size:1.15rem;line-height:1.2;letter-spacing:-.01em;overflow-wrap:anywhere}
-.f-dn{font:.69rem var(--mono);color:var(--dim);margin-top:.25rem;overflow-wrap:anywhere}
-.f-close{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;width:34px;height:34px;font:700 1rem var(--sans);color:var(--fg);flex:none;cursor:pointer}
-.f-close:hover{border-color:var(--red);color:var(--red)}
-.f-body{flex:1;overflow-y:auto;padding:.2rem .9rem .9rem;scrollbar-width:thin}
-.f-body h4{margin:.95rem 0 .25rem;font:700 .7rem var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--amber)}
-.f-body p{margin:0;font-size:.9rem;line-height:1.55;color:#c6d0df}
-.f-foot{padding:.5rem .9rem;border-top:1px solid var(--line);font-size:.75rem;color:var(--dim)}
-
-/* panel de protocolo */
-.wirecard{margin-top:12px}
-.wire{padding:.7rem .8rem .8rem;min-height:118px;background:#0b111a;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:10px 18px}
-.wmsg{min-width:0;animation:fade .4s}
-.wmsg+.wmsg{border-left:1px solid var(--line);padding-left:18px}
-@media (max-width:760px){.wmsg+.wmsg{border-left:0;padding-left:0;border-top:1px solid var(--line);padding-top:10px}}
-.wire-t{font:700 .72rem var(--mono);color:var(--blue);letter-spacing:.05em;text-transform:uppercase;margin-bottom:.4rem}
-.wire-t.idle{color:var(--dim)}
-.parts{display:flex;gap:5px;flex-wrap:wrap}
-.part{flex:1 1 150px;border:1px solid var(--line2);border-radius:7px;padding:.3rem .5rem;background:var(--panel2);font:.72rem var(--mono);min-width:0;animation:fade .4s}
-.part b{display:block;color:var(--fg);font-size:.74rem;overflow-wrap:anywhere}
-.part span{color:var(--muted);overflow-wrap:anywhere}
-.part.bad{border-color:var(--red);background:var(--red-soft)}.part.bad span{color:#ffb3bb}
-.part.warn{border-color:var(--amber);background:rgba(255,180,84,.08)}.part.warn span{color:var(--amber)}
-.wire-n{color:var(--muted);font-size:.8rem;margin-top:.45rem}.wire-n.idle{margin:0;color:var(--dim)}
-
-/* terminal */
-.term{flex:1;min-height:280px;max-height:640px;overflow-y:auto;padding:.7rem .85rem;font:12.5px/1.55 var(--mono);background:#070a0f;scrollbar-width:thin;position:relative}
-.dots{display:flex;gap:5px}.dots i{width:10px;height:10px;border-radius:50%;display:block;background:#2a3548}
-.dots i:first-child{background:#ff5f57}.dots i:nth-child(2){background:#febc2e}.dots i:nth-child(3){background:#28c840}
-.ln{white-space:pre-wrap;overflow-wrap:anywhere;color:#aab6c8}
-.ln.cmd{color:#eef3fb;margin-top:.55rem}
-.ln.cmd:first-child{margin-top:0}
-.ps{color:var(--green);font-weight:700}.ps.dc{color:var(--blue)}.ps.bh{color:var(--violet)}
-.ln.ok{color:var(--green)}.ln.err{color:var(--red);font-weight:700}.ln.hl{color:var(--amber)}.ln.pw{color:#ff9aa5;font-weight:700}.ln.dim{color:var(--dim)}
-.ln.cm{color:#6d8fb8;font-style:italic;margin-top:.45rem}
-.typing::after{content:"▋";color:var(--green);animation:blink 1s steps(1) infinite}
-@keyframes blink{50%{opacity:0}}
-.start{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:1rem;background:#070a0f}
-.start button{background:var(--red);border:0;color:#fff;font:700 1rem var(--mono);border-radius:10px;padding:.8rem 1.4rem;box-shadow:0 0 0 0 rgba(255,77,94,.6);animation:ring 1.8s infinite}
-.start p{color:var(--muted);font-size:.8rem;margin:.9rem 0 0;font-family:var(--sans)}
-@keyframes ring{70%{box-shadow:0 0 0 16px rgba(255,77,94,0)}100%{box-shadow:0 0 0 0 rgba(255,77,94,0)}}
-
-/* explicación */
-.info{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem 1.1rem}
-.info-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .8rem}
-.num{font:800 .78rem var(--mono);color:var(--red);letter-spacing:.06em}
-h2{margin:0;font-size:1.25rem;letter-spacing:-.01em}
-.need{font:600 .72rem var(--mono);color:var(--violet);border:1px solid rgba(183,156,255,.35);border-radius:999px;padding:.1rem .6rem}
-.sum{margin:.5rem 0 .9rem;color:#b8c3d4;max-width:95ch}
-.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-@media (max-width:860px){.cards{grid-template-columns:1fr}}
-.c{border:1px solid var(--line);border-radius:10px;padding:.7rem .85rem;background:var(--panel2);border-top:3px solid var(--line2)}
-.c h3{margin:0 0 .3rem;font:700 .72rem var(--mono);letter-spacing:.06em;text-transform:uppercase}
-.c p{margin:0;font-size:.88rem;color:#c3cddc}
-.c.why{border-top-color:var(--red)}.c.why h3{color:var(--red)}
-.c.fix{border-top-color:var(--green)}.c.fix h3{color:var(--green)}
-.c.det{border-top-color:var(--blue)}.c.det h3{color:var(--blue)}
-footer{margin-top:16px;color:var(--dim);font-size:.8rem;display:flex;flex-wrap:wrap;gap:.3rem 1.2rem;justify-content:space-between}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-
 /* ===== ajustes propios de fundamentos.html (acento azul: aquí no se ataca, se explica) ===== */
 body{background-image:radial-gradient(1200px 500px at 15% -10%,rgba(90,176,255,.09),transparent 60%),radial-gradient(900px 500px at 100% 0,rgba(61,220,151,.05),transparent 60%)}
 .topbar h1 em{color:var(--blue)}
@@ -268,6 +73,12 @@ svg#g{max-height:min(64vh,620px)}
 <body>
 <div class="wrap">
 
+<nav class="sitenav" aria-label="Serie Nordwind AD Lab">
+  <a href="index.html">← Inicio</a>
+  <span class="sn-pos">Nordwind AD Lab · <b>2 de 3</b> · Cómo funciona AD por dentro</span>
+  <a href="diagrams/ad-explorer.html">Siguiente: explorador del dominio →</a>
+</nav>
+
 <header class="topbar">
   <h1>Nordwind AD Lab — cómo funciona <em>Active Directory</em> por dentro: <em>Kerberos</em>, <em>AGDLP</em> y <em>permisos</em></h1>
   <div class="tb-sub">
@@ -275,7 +86,7 @@ svg#g{max-height:min(64vh,620px)}
     <span class="sep">·</span>
     <span>Sigue a anna.nowak desde que escribe su contraseña hasta que abre una carpeta, y mira qué piezas del dominio intervienen. Cada paso enlaza con el ataque que nace de él.</span>
     <span class="sep">·</span>
-    <a href="index.html">Ver el ataque (replay)</a>
+    <a href="ataque.html">El ataque (replay)</a>
     <a href="https://github.com/jorgearma/nordwind-ad-lab">Repositorio</a>
   </div>
 </header>
@@ -331,6 +142,8 @@ svg#g{max-height:min(64vh,620px)}
   </div>
 </section>
 
+<p class="serie"><b>Orden de lectura:</b> <a href="ataque.html">1 · el ataque</a> → <span class="here">2 · cómo funciona AD (estás aquí)</span> → <a href="diagrams/ad-explorer.html">3 · el explorador</a>. Si prefieres aprender antes de ver cómo se rompe, léelo al revés.</p>
+
 <footer>
   <span>Jorge Escobar · laboratorio propio y aislado (VirtualBox, red interna). Windows Server 2022 + Windows 11.</span>
   <span>La base del dominio es de <a href="https://github.com/maciej-stawowy/active-directory-lab">Maciej Stawowy</a> (MIT). FS01 es ilustrativo: los grupos <code>DL_FS01_*</code> existen en el lab, el servidor todavía no.</span>
@@ -338,20 +151,9 @@ svg#g{max-height:min(64vh,620px)}
 <noscript><p>Esta página necesita JavaScript para reproducir la animación.</p></noscript>
 </div>
 
+<script src="assets/engine.js"></script>
 <script>
 "use strict";
-const NS='http://www.w3.org/2000/svg', $=id=>document.getElementById(id);
-const svg=$('g');
-function el(tag,attrs,parent,text){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;(parent||svg).appendChild(e);return e;}
-function clickable(elem,key,label){
-  elem.__key=key;
-  elem.classList.add('click');elem.setAttribute('tabindex','0');elem.setAttribute('role','button');
-  if(label)elem.setAttribute('aria-label',label+' — ver explicación');
-  const open=e=>{e.stopPropagation();openFicha(key);};
-  elem.addEventListener('click',open);
-  elem.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open(e);}});
-}
-
 /* ============================================================
    PIEZAS DEL ESQUEMA (posiciones en el viewBox 900x566)
    ============================================================ */
@@ -519,10 +321,11 @@ const STEPS = [
   cards:[
     ['Qué pasa','CL01 pregunta al DNS qué servidor ofrece Kerberos para `nordwind.local`. Después deriva las claves de anna a partir de su contraseña. La contraseña en sí no se envía a ningún sitio, ni ahora ni después.'],
     ['Por qué está diseñado así','Kerberos nació para redes en las que cualquiera puede escuchar. Si la contraseña nunca viaja, no se puede capturar. A cambio, las dos partes deben poder calcular la misma clave: por eso el directorio guarda claves derivadas y no la contraseña.'],
-    ['Qué ataque nace aquí','La clave ES la credencial: quien roba el hash NT o la clave AES se autentica sin conocer la contraseña (Pass-the-Hash, Overpass-the-Hash). Es lo que se consigue al final del ataque: [paso 7 del replay](index.html#paso=7). Y el registro DNS es lo que un atacante consulta para encontrar el DC.']
+    ['Qué ataque nace aquí','La clave ES la credencial: quien roba el hash NT o la clave AES se autentica sin conocer la contraseña (Pass-the-Hash, Overpass-the-Hash). Es lo que se consigue al final del ataque: [paso 7 del replay](ataque.html#paso=7). Y el registro DNS es lo que un atacante consulta para encontrar el DC.']
   ],
   script:[
-    {t:'cm', s:'# Lo que hace Windows por debajo al arrancar sesión: buscar un KDC.'},
+    {t:'cm', s:'# Antes de nada hay que encontrar un KDC. Se pregunta al DNS; a mano se ve así:'},
+    {t:'cm', s:'# (el localizador de DC de Windows consulta en realidad _ldap._tcp.dc._msdcs.nordwind.local; la idea es la misma)'},
     {t:'cmd', s:'nslookup -type=SRV _kerberos._tcp.nordwind.local'},
     {t:'wire', title:'DNS · CL01 → DC01 (puerto 53)', parts:[['pregunta SRV','_kerberos._tcp.nordwind.local'],['respuesta','dc01.nordwind.local, puerto 88']], note:'Sin cifrar y sin autenticar. AD depende por completo del DNS: los equipos no tienen apuntado quién es su DC, lo preguntan cada vez.'},
     {t:'pkt', from:'cl', to:'as', label:'DNS: ¿quién da Kerberos?', cls:'no'},
@@ -544,7 +347,7 @@ const STEPS = [
   cards:[
     ['Qué pasa','El primer intento sin pre-autenticación se rechaza. En el segundo, el AS valida la hora cifrada y devuelve el TGT (cifrado con la clave de `krbtgt`) y una clave de sesión nueva (cifrada con la clave de anna). Esa clave de sesión va también dentro del TGT.'],
     ['Por qué está diseñado así','El TGT evita usar la clave de anna el resto del día: Windows puede dejar de depender de ella y trabajar con un pase que caduca a las 10 horas. Y como el TGT va cifrado para el propio KDC, este no necesita recordar a quién se lo dio.'],
-    ['Qué ataque nace aquí','Si una cuenta no exige pre-autenticación, el AS entrega a cualquiera el bloque cifrado con la clave del usuario: AS-REP Roasting, [paso 2 del replay](index.html#paso=2). Y todo TGT se valida solo con la clave de krbtgt: quien la robe fabrica los suyos (Golden Ticket).']
+    ['Qué ataque nace aquí','Si una cuenta no exige pre-autenticación, el AS entrega a cualquiera el bloque cifrado con la clave del usuario: AS-REP Roasting, [paso 2 del replay](ataque.html#paso=2). Y todo TGT se valida solo con la clave de krbtgt: quien la robe fabrica los suyos (Golden Ticket).']
   ],
   script:[
     {t:'wire', title:'AS-REQ · primer intento, sin pre-autenticación', parts:[['cname','anna.nowak'],['sname','krbtgt/NORDWIND.LOCAL'],['padata','vacío']], note:'Windows prueba primero sin pre-autenticación. El AS contesta con el error PREAUTH_REQUIRED y, de paso, indica la sal y los cifrados que admite. Esas nueve respuestas de error son las que se ven en el AS-REP Roasting.'},
@@ -571,7 +374,7 @@ const STEPS = [
   cards:[
     ['Qué pasa','CL01 envía el TGT, un autenticador cifrado con la clave de sesión A y el nombre del servicio (SPN). El TGS abre el TGT con la clave de krbtgt, saca de dentro la clave de sesión A y con ella valida el autenticador. Después emite un ticket cifrado con la clave de `FS01$`.'],
     ['Por qué está diseñado así','El TGS no necesita la contraseña de anna ni recordar nada: todo lo que le hace falta viaja en el TGT. Y no comprueba permisos porque no puede conocer las reglas de cada servicio del dominio: eso lo decidirá FS01.'],
-    ['Qué ataque nace aquí','Cualquier usuario puede pedir un ticket para cualquier SPN y llevarse un bloque cifrado con la clave de la cuenta de servicio. Si esa cuenta tiene una contraseña humana, se crackea offline: Kerberoasting, [paso 3 del replay](index.html#paso=3).']
+    ['Qué ataque nace aquí','Cualquier usuario puede pedir un ticket para cualquier SPN y llevarse un bloque cifrado con la clave de la cuenta de servicio. Si esa cuenta tiene una contraseña humana, se crackea offline: Kerberoasting, [paso 3 del replay](ataque.html#paso=3).']
   ],
   script:[
     {t:'cm', s:'# klist get pide un ticket a mano; al abrir \\\\fs01\\... Windows hace lo mismo sin avisar.'},
@@ -619,7 +422,7 @@ const STEPS = [
   cards:[
     ['Qué pasa','El KDC consultó el directorio al emitir los tickets y copió en el PAC los SID de anna y de sus grupos, incluidos los anidados. FS01 lee el PAC, comprueba su firma y crea un token con esos SID. No ha tenido que preguntar a nadie a qué grupos pertenece anna.'],
     ['Por qué está diseñado así','Kerberos estándar solo dice quién eres. Microsoft añadió el PAC para que el servidor pudiera autorizar sin consultar el directorio en cada acceso. El precio es que los grupos quedan fijados cuando se emite el ticket: un cambio de grupo no se aplica hasta volver a iniciar sesión.'],
-    ['Qué ataque nace aquí','Quien puede firmar un PAC decide en qué grupos está. Con la clave de `krbtgt` se fabrica un TGT cuyo PAC incluye el RID 512 (Domain Admins): es el Golden Ticket que queda disponible tras el DCSync del [paso 7 del replay](index.html#paso=7).']
+    ['Qué ataque nace aquí','Quien puede firmar un PAC decide en qué grupos está. Con la clave de `krbtgt` se fabrica un TGT cuyo PAC incluye el RID 512 (Domain Admins): es el Golden Ticket que queda disponible tras el DCSync del [paso 7 del replay](ataque.html#paso=7).']
   ],
   script:[
     {t:'cm', s:'# Esto no es un mensaje nuevo: es lo que iba DENTRO del ticket del paso anterior.'},
@@ -642,7 +445,7 @@ const STEPS = [
   cards:[
     ['Qué pasa','`anna.nowak` (Account) es miembro de `G_Management_Users` (Global). Ese grupo es miembro de `DL_FS01_Management_Modify` (Domain Local). Y la ACL de la carpeta concede Modify (Permission) a ese grupo DL. Cuatro eslabones, cuatro letras.'],
     ['Por qué está diseñado así','Cada cambio toca un solo sitio. Entra un directivo nuevo: se le añade al grupo G y hereda todos sus accesos. Se crea una carpeta nueva: se crea su DL y se meten los G que correspondan. Nadie edita ACL en los servidores, y para saber quién accede a qué basta leer miembros de grupos.'],
-    ['Qué ataque nace aquí','El anidamiento oculta el acceso efectivo: un grupo inofensivo metido dentro de otro privilegiado es una escalada que nadie ve en la consola. BloodHound resuelve estas cadenas en segundos, como en el [paso 8 del replay](index.html#paso=8). Y comprometer una cuenta es heredar todo lo que su rol alcanza.']
+    ['Qué ataque nace aquí','El anidamiento oculta el acceso efectivo: un grupo inofensivo metido dentro de otro privilegiado es una escalada que nadie ve en la consola. BloodHound resuelve estas cadenas en segundos, como en el [paso 8 del replay](ataque.html#paso=8). Y comprometer una cuenta es heredar todo lo que su rol alcanza.']
   ],
   script:[
     {t:'cmd', host:'dc', s:'Get-ADPrincipalGroupMembership anna.nowak | Select-Object name, GroupScope'},
@@ -664,8 +467,8 @@ const STEPS = [
   sum:'anna abre la carpeta. FS01 compara los SID de su token con las entradas de la ACL. Hay una entrada para uno de sus grupos que concede Modify, así que entra. En la carpeta de Recursos Humanos ninguna entrada coincide, y eso basta para denegar.',
   cards:[
     ['Qué pasa','FS01 recorre las ACE de la carpeta en orden buscando los SID del token. Encuentra el de `DL_FS01_Management_Modify` con el permiso Modify y concede el acceso. Para `\\\\FS01\\HR` no hay ninguna ACE con un SID de anna: el acceso se deniega sin que exista una regla que lo diga.'],
-    ['Por qué está diseñado así','Lo que no está permitido está denegado: las ACL son listas de permitidos, no de prohibidos. La decisión se toma en el servidor que tiene el recurso, con datos que ya tiene (token y ACL), sin depender de que el DC esté disponible.'],
-    ['Qué ataque nace aquí','Las ACL demasiado amplias: carpetas donde `Everyone` o `Authenticated Users` pueden leer, con scripts y contraseñas dentro. Buscar recursos compartidos legibles es de lo primero que hace un atacante con cualquier cuenta válida, como la de piotr tras el [paso 2 del replay](index.html#paso=2).']
+    ['Por qué está diseñado así','Lo que ninguna ACE concede queda denegado (denegación implícita): no hace falta una regla que prohíba. Las ACE de denegar existen, pero se reservan para excepciones. La decisión se toma en el servidor que tiene el recurso, con datos que ya tiene (token y ACL), sin depender de que el DC esté disponible.'],
+    ['Qué ataque nace aquí','Las ACL demasiado amplias: carpetas donde `Everyone` o `Authenticated Users` pueden leer, con scripts y contraseñas dentro. Buscar recursos compartidos legibles es de lo primero que hace un atacante con cualquier cuenta válida, como la de piotr tras el [paso 2 del replay](ataque.html#paso=2).']
   ],
   script:[
     {t:'cmd', s:'icacls \\\\fs01.nordwind.local\\Management'},
@@ -691,7 +494,7 @@ const STEPS = [
   cards:[
     ['Qué pasa','En `OU=Management` hay una ACE que concede al grupo de IT el derecho de restablecer contraseñas, marcada para aplicarse a los usuarios que cuelgan de la OU. La cuenta de anna no tiene esa ACE escrita: la hereda de su contenedor. Si anna se mueve a otra OU, la pierde.'],
     ['Por qué está diseñado así','Permite repartir tareas por partes del árbol: soporte restablece contraseñas en una OU, RR. HH. edita teléfonos en otra, y nadie necesita ser Domain Admin. Por eso la estructura de OU se diseña pensando en quién administra qué, no en el organigrama.'],
-    ['Qué ataque nace aquí','Un derecho sobre un objeto es poder sobre esa identidad. La ACE que planté de piotr sobre robert es de este mismo tipo, y con ella piotr le cambia la contraseña: [paso 4 del replay](index.html#paso=4). `GenericAll`, `WriteDacl` y `WriteOwner` son los eslabones de casi toda ruta de escalada.']
+    ['Qué ataque nace aquí','Un derecho sobre un objeto es poder sobre esa identidad. La ACE que planté de piotr sobre robert es de este mismo tipo, y con ella piotr le cambia la contraseña: [paso 4 del replay](ataque.html#paso=4). `GenericAll`, `WriteDacl` y `WriteOwner` son los eslabones de casi toda ruta de escalada.']
   ],
   script:[
     {t:'cm', s:'# Ejemplo de delegación para explicar el mecanismo (no forma parte del sabotaje del lab).'},
@@ -712,7 +515,7 @@ const STEPS = [
   cards:[
     ['Qué pasa','El proceso SDProp se ejecuta cada 60 minutos. Localiza los grupos protegidos y sus miembros, los marca con `adminCount=1`, les copia la ACL del objeto `AdminSDHolder` y desactiva la herencia. Cualquier ACE añadida a mano desaparece en la siguiente pasada.'],
     ['Por qué está diseñado así','Es un seguro contra errores de delegación: aunque un Domain Admin viva en una OU donde soporte puede restablecer contraseñas, esa ACE no le llega. El control sobre los objetos más críticos se define en un único sitio en vez de depender de dónde esté cada cuenta.'],
-    ['Qué ataque nace aquí','Es justo lo que me encontré: el `GenericAll` plantado sobre Domain Admins fue borrado ([paso 5 del replay](index.html#paso=5)) y hubo que ganarle la carrera a SDProp ([paso 6](index.html#paso=6)). Al revés, una ACE añadida en el propio AdminSDHolder se propaga sola cada hora: persistencia.']
+    ['Qué ataque nace aquí','Es justo lo que me encontré: el `GenericAll` plantado sobre Domain Admins fue borrado ([paso 5 del replay](ataque.html#paso=5)) y hubo que ganarle la carrera a SDProp ([paso 6](ataque.html#paso=6)). Al revés, una ACE añadida en el propio AdminSDHolder se propaga sola cada hora: persistencia.']
   ],
   script:[
     {t:'cmd', host:'dc', s:'Get-ADObject -LDAPFilter "(adminCount=1)" | Select-Object Name, ObjectClass'},
@@ -734,7 +537,7 @@ const STEPS = [
   cards:[
     ['Autenticación: Kerberos','Tres intercambios: AS (contraseña → TGT), TGS (TGT → ticket de servicio), AP (ticket → sesión). Para entender cualquier mensaje pregunta con la clave de quién va cifrado: eso dice quién puede leerlo, quién puede fabricarlo y qué se puede crackear.'],
     ['Autorización: grupos y ACL','El PAC lleva los SID de tus grupos dentro del ticket; el servidor los compara con la ACL del recurso. AGDLP ordena esa relación: personas en grupos por rol, roles en grupos por permiso, y solo estos en la ACL.'],
-    ['Control: permisos sobre objetos','Los objetos del directorio tienen ACL que dan poder sobre identidades. Se propagan por herencia desde las OU, salvo en los objetos protegidos, que las reciben de AdminSDHolder. Ahora vuelve al [replay del ataque](index.html) y léelo con estos ojos.']
+    ['Control: permisos sobre objetos','Los objetos del directorio tienen ACL que dan poder sobre identidades. Se propagan por herencia desde las OU, salvo en los objetos protegidos, que las reciben de AdminSDHolder. Ahora vuelve al [replay del ataque](ataque.html) y léelo con estos ojos.']
   ],
   script:[
     {t:'set', f:G=>{G.sub('cl','caché completa');G.add('cl','ok');G.sub('fsacc','clave de FS01');}},
@@ -763,13 +566,6 @@ const STEPS = [
 /* ============================================================
    ESQUEMA (SVG)
    ============================================================ */
-const ICONS={
-  user:'M0-9a5 5 0 1 0 .01 0M-9 11c0-6 4-8 9-8s9 2 9 8',
-  group:'M-5-8a4 4 0 1 0 .01 0M6-6a3.5 3.5 0 1 0 .01 0M-13 10c0-5 3-7 8-7s8 2 8 7M5 3c5 0 8 2 8 6',
-  pc:'M-11-10h22v15h-22zM-5 11h10M0 5v6',
-  folder:'M-12-9h8l3 3h13v15h-24z'
-};
-let L={};
 function baseClass(id){return 'n '+(NODES[id].kind==='svc'?'svc':'')+(INFO[id]?' click':'');}
 function build(){
   const grid=el('g',{class:'grid'});
@@ -831,25 +627,9 @@ function resetGraph(){
 }
 
 /* ============================================================
-   MOTOR DE REPRODUCCIÓN (el mismo que index.html)
+   LO PROPIO DE ESTA PÁGINA: consolas, paquetes y haces
+   (el motor de reproducción está en assets/engine.js)
    ============================================================ */
-const CANCEL=Symbol('cancel');
-const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-let cur=-1, run=0, busy=false, paused=false, instant=false, speed=1;
-const term=$('term');
-
-function wait(ms,my){
-  if(instant||reduce) return my===run?Promise.resolve():Promise.reject(CANCEL);
-  return new Promise((res,rej)=>{
-    let left=ms/speed,last=performance.now();
-    (function tick(){
-      if(my!==run)return rej(CANCEL);
-      const now=performance.now(); if(!paused)left-=now-last; last=now;
-      if(left<=0)return res(); setTimeout(tick,16);
-    })();
-  });
-}
-function line(cls){const d=document.createElement('div');d.className='ln '+(cls||'');term.appendChild(d);term.scrollTop=term.scrollHeight;return d;}
 const PROMPT={cl:['PS C:\\Users\\anna.nowak> ',''],dc:['PS C:\\> ','dc']};
 const TITLE={cl:'CL01 — PowerShell (anna.nowak)',dc:'DC01 — PowerShell (admin)'};
 function chip(a,parent,right){
@@ -872,133 +652,9 @@ async function doBeam(a,my){
   const l=el('line',{class:'beam',x1:A.x,y1:A.y,x2:B.x,y2:B.y,stroke:a.color},L.beams);
   setTimeout(()=>l.remove(),1700); await wait(600,my);
 }
-function rich(node,text){
-  node.textContent='';
-  text.split('`').forEach((s,i)=>{
-    if(i%2){const c=document.createElement('code');c.textContent=s;node.appendChild(c);return;}
-    const re=/\[([^\]]+)\]\(([^)]+)\)/g; let last=0,m;
-    while((m=re.exec(s))){
-      node.appendChild(document.createTextNode(s.slice(last,m.index)));
-      const a=document.createElement('a');a.href=m[2];a.textContent=m[1];node.appendChild(a);
-      last=re.lastIndex;
-    }
-    node.appendChild(document.createTextNode(s.slice(last)));
-  });
-}
 function idleWire(){$('wire').innerHTML='<div class="wire-n idle">Aquí se desglosa cada mensaje del paso: qué lleva dentro y con la clave de quién va cifrado cada parte. El color del borde izquierdo indica esa clave.</div>';}
-async function doCmd(a,my){
-  const h=a.host||'cl'; $('termtitle').textContent=TITLE[h];
-  const d=line('cmd'),ps=document.createElement('span');ps.className='ps '+PROMPT[h][1];ps.textContent=PROMPT[h][0];d.appendChild(ps);
-  const t=document.createElement('span');t.className='typing';d.appendChild(t);
-  await wait(250,my);
-  for(let i=0;i<a.s.length;i+=2){t.textContent=a.s.slice(0,i+2);term.scrollTop=term.scrollHeight;await wait(20,my);}
-  t.textContent=a.s; await wait(350,my); t.className='';
-}
-async function doOut(a,my){
-  for(const l of a.lines){const [c,s]=Array.isArray(l)?l:['',l];line(c).textContent=s;await wait(130,my);}
-  await wait(350,my);
-}
-function tween(g,x0,y0,x1,y1,dur,my){
-  return new Promise((res,rej)=>{
-    let t=0,last=performance.now();
-    (function f(now){
-      if(my!==run){g.remove();return rej(CANCEL);}
-      if(!paused)t+=(now-last)*speed; last=now;
-      const p=Math.min(1,t/dur),e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
-      g.setAttribute('transform',`translate(${x0+(x1-x0)*e},${y0+(y1-y0)*e})`);
-      if(p<1)requestAnimationFrame(f);else res();
-    })(performance.now());
-  });
-}
 
-/* ---- ficha explicativa (al pulsar un elemento del grafo) ---- */
-let fichaResume=false, fichaSel=null;
-function openFicha(key){
-  const d=INFO[key]; if(!d)return;
-  if(busy&&!paused){paused=true;ui();fichaResume=true;} else fichaResume=false;
-  if(fichaSel)fichaSel.classList.remove('sel');
-  fichaSel=[...svg.querySelectorAll('.click')].find(e=>e.__key===key)||null;
-  if(fichaSel)fichaSel.classList.add('sel');
-  $('f-type').textContent=d.type; $('f-title').textContent=d.title; $('f-dn').textContent=d.dn;
-  const body=$('f-body'); body.textContent='';
-  for(const [h,p] of d.secs){const H=document.createElement('h4');H.textContent=h;const P=document.createElement('p');rich(P,p);body.append(H,P);}
-  body.scrollTop=0;
-  const ff=$('ficha'); ff.hidden=false; $('f-close').focus();
-}
-function closeFicha(){
-  const ff=$('ficha'); if(ff.hidden)return;
-  ff.hidden=true;
-  if(fichaSel){fichaSel.classList.remove('sel');fichaSel=null;}
-  if(fichaResume){paused=false;fichaResume=false;ui();}
-}
-function doWire(a){
-  const box=$('wire'); if(box.firstElementChild&&box.firstElementChild.classList.contains('idle'))box.textContent='';
-  const w=document.createElement('div');w.className='wmsg';box.appendChild(w);
-  const t=document.createElement('div');t.className='wire-t';t.textContent=(box.childElementCount)+' · '+a.title;w.appendChild(t);
-  const ps=document.createElement('div');ps.className='parts';w.appendChild(ps);
-  for(const [k,v,c] of a.parts){const p=document.createElement('div');p.className='part '+(c||'');const b=document.createElement('b');b.textContent=k;const s=document.createElement('span');s.textContent=v;p.append(b,s);ps.appendChild(p);}
-  const n=document.createElement('div');n.className='wire-n';n.textContent=a.note;w.appendChild(n);
-}
-async function exec(a,my){
-  switch(a.t){
-    case 'cmd': return doCmd(a,my);
-    case 'out': return doOut(a,my);
-    case 'cm':  line('cm').textContent=a.s; return wait(900,my);
-    case 'pkt': return doPkt(a,my);
-    case 'beam':return doBeam(a,my);
-    case 'wire':doWire(a); return wait(1300,my);
-    case 'set': a.f(G); return wait(500,my);
-    case 'wait':return wait(a.ms,my);
-  }
-}
-function meta(i){
-  const s=STEPS[i];
-  $('i-num').textContent='PASO '+(i+1)+' / '+STEPS.length; $('i-title').textContent=s.title; $('i-need').textContent=s.need; $('i-sum').textContent=s.sum;
-  s.cards.forEach((c,k)=>{$('c'+(k+1)+'t').textContent=c[0];rich($('c'+(k+1)),c[1]);});
-}
-function ui(){
-  [...$('steps').children].forEach((c,k)=>{c.className='chip'+(k===cur?' cur':k<cur?' done':'')+(!busy&&k===cur+1?' nextup':'');});
-}
-async function go(i,opt){
-  opt=opt||{}; closeFicha(); const my=++run; cur=i; paused=false; instant=!!opt.instant;
-  const st=$('start'); if(st)st.remove();
-  resetGraph(); idleWire();
-  for(let k=0;k<i;k++)for(const a of STEPS[k].script)if(a.t==='set')a.f(G);
-  term.textContent=''; $('termtitle').textContent=TITLE.cl; meta(i);
-  busy=true; ui();
-  if(history.replaceState)history.replaceState(null,'','#paso='+(i+1));
-  try{
-    for(const a of STEPS[i].script)await exec(a,my);
-    busy=false; instant=false; ui();
-  }catch(e){ if(e!==CANCEL)throw e; }
-}
-function toggle(){
-  if(cur<0)return go(0);
-  if(busy){paused=!paused;ui();return;}
-  if(cur<STEPS.length-1)go(cur+1);
-}
-
-/* ============================================================
-   ARRANQUE
-   ============================================================ */
-build(); idleWire(); meta(0);
-STEPS.forEach((s,i)=>{const b=document.createElement('button');b.className='chip';b.setAttribute('role','tab');const n=document.createElement('b');n.textContent=i+1;b.append(n,s.chip);b.onclick=()=>{if(i===cur&&busy)go(i,{instant:true});else go(i);};$('steps').appendChild(b);});
-$('startbtn').onclick=()=>go(0);
-$('f-close').onclick=closeFicha;
-$('ficha').addEventListener('click',e=>{if(e.target===$('ficha'))closeFicha();});
-const step=d=>{if(busy&&d>0)return go(cur,{instant:true});const n=cur+d;if(n>=0&&n<STEPS.length)go(n);};
-addEventListener('keydown',e=>{
-  if(e.key==='Escape'&&!$('ficha').hidden){e.preventDefault();closeFicha();return;}
-  if(e.target.closest('a')||e.ctrlKey||e.metaKey||e.altKey)return;
-  if(e.key==='ArrowRight'){e.preventDefault();step(1);}
-  else if(e.key==='ArrowLeft'){e.preventDefault();step(-1);}
-  else if(e.key===' '){e.preventDefault();toggle();}
-  else if((e.key==='r'||e.key==='R')&&cur>=0){go(cur);}
-});
-ui();
-// Enlace directo a un paso ya resuelto: index.html#paso=5
-const m=location.hash.match(/paso=(\d+)/);
-if(m){const i=Math.min(STEPS.length,Math.max(1,+m[1]))-1;if(/anim/.test(location.hash))go(i);else go(i,{instant:true});}
+start('cl');
 
 // glosario: botones que abren la ficha de cada concepto
 for(const [k,t] of GLOSS){const b=document.createElement('button');b.type='button';b.textContent=t;b.onclick=()=>openFicha(k);$('gloss').appendChild(b);}
