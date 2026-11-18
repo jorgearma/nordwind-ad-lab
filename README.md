@@ -9,19 +9,19 @@ Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
 
 ## Live site
 
-**[▶ Open the site](https://jorgearma.github.io/nordwind-ad-lab/)** — the front page, laid out like
+**[▶ Open the site](https://ad-lab.jorgearmandoescobar.com/)** — the front page, laid out like
 a small blog: the attack replay as the featured entry, then "How AD works inside" and the domain
 explorer. Source: [`index.html`](index.html) (static HTML; preview images in `assets/img/`). The
 three pages share a top bar ("← Inicio" + next entry) so they read as a series.
 
-**[▶ How AD works inside](https://jorgearma.github.io/nordwind-ad-lab/fundamentos.html)** — nobody
+**[▶ How AD works inside](https://ad-lab.jorgearmandoescobar.com/fundamentos.html)** — nobody
 attacks anything. It follows one user from logon to opening a share and breaks down Kerberos (KDC,
 AS/TGS/AP exchanges, TGT, service tickets, PAC), AGDLP, the access check, ACL inheritance and
 AdminSDHolder/SDProp, linking each mechanism to the attack step that abuses it. Terminal output is
 reconstructed and `FS01` is illustrative (the `DL_FS01_*` groups exist in the lab, the server does
 not). Source: [`fundamentos.html`](fundamentos.html).
 
-**[▶ Watch the attack replay](https://jorgearma.github.io/nordwind-ad-lab/ataque.html)** — an
+**[▶ Watch the attack replay](https://ad-lab.jorgearmandoescobar.com/ataque.html)** — an
 animated, step-by-step reproduction of the Phase 3 chain (domain graph + terminal + Kerberos
 message breakdown), with *why it works*, *how to fix it* and *how to detect it* for every step.
 It is a replay of the real attack on this lab, not a live AD in the browser; terminal output
@@ -32,15 +32,38 @@ Both animated pages share one stylesheet and one playback engine
 its own data (nodes, info cards, scenes) and drawing code. No build step, no dependencies; content
 in Spanish.
 
-### Run the site locally with Docker
+### Deployment (VPS + embedded Cloudflare Tunnel)
+
+In production the stack ships as **two containers**: the static site (`nginx`, non-root,
+read-only) on an **internal-only network** with no published ports, and a dedicated
+`cloudflared` tunnel that is the only service with internet egress. Nothing is exposed on
+the host; traffic arrives as `Cloudflare → tunnel → http://web:8080`.
 
 ```bash
-docker compose up -d --build   # → http://127.0.0.1:8083
+# one-time: create a project-dedicated tunnel in Cloudflare Zero Trust,
+# route ad-lab.jorgearmandoescobar.com → http://web:8080, and store its token:
+mkdir -p secrets && chmod 700 secrets
+printf '%s' '<TUNNEL_TOKEN>' > secrets/tunnel_token && chmod 444 secrets/tunnel_token
+
+docker compose up -d --build   # web + cloudflared
 docker compose down            # stop and remove
 ```
 
-Only the static site is containerized (nginx, non-root, read-only filesystem). The AD lab itself
-(Windows Server DC + Windows 11 client) runs in VirtualBox, see [Stack](#stack).
+`secrets/` is git- and docker-ignored. See [`compose.yaml`](compose.yaml) for the full
+hardening (OWASP Docker Top 10: dropped caps, no-new-privileges, mem/cpu/pids limits,
+pinned image digest, token via file secret).
+
+### Local preview (no tunnel)
+
+To just see the site without a tunnel, build and run the web image directly:
+
+```bash
+docker build -t nordwind-web .
+docker run --rm -p 127.0.0.1:8083:8080 nordwind-web   # → http://127.0.0.1:8083
+```
+
+Only the static site is containerized. The AD lab itself (Windows Server DC + Windows 11
+client) runs in VirtualBox, see [Stack](#stack).
 
 ## Scenario
 
