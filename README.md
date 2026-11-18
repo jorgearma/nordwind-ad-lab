@@ -1,116 +1,164 @@
-# Nordwind Logistics — Active Directory Lab
+# Nordwind Logistics — Laboratorio de Active Directory
 
-An **Active Directory** lab built from scratch, documenting the whole process end to end:
-from infrastructure design to offensive exploitation.
+> **Monté un dominio de Active Directory desde cero, lo saboteé a propósito y lo ataqué de
+> cero credenciales a Domain Admin.** Construir, romper y entender los dos lados de AD.
 
-Learning and portfolio project — **Jorge Escobar** (OSCP / CRTP preparation).
+**[▶ Ver el laboratorio en vivo](https://ad-lab.jorgearmandoescobar.com/)**
+
+Proyecto de aprendizaje y portfolio — **Jorge Escobar**, pentester junior (preparando OSCP / CRTP).
+
+![Portada del laboratorio: de cero credenciales a Domain Admin](docs/screenshots/01-portada-nordwind.png)
 
 ---
 
-## Live site
+## Qué demuestra este proyecto
 
-**[▶ Open the site](https://ad-lab.jorgearmandoescobar.com/)** — the front page, laid out like
-a small blog: the attack replay as the featured entry, then "How AD works inside" and the domain
-explorer. Source: [`index.html`](index.html) (static HTML; preview images in `assets/img/`). The
-three pages share a top bar ("← Inicio" + next entry) so they read as a series.
+- **Los dos lados de AD.** No solo lancé herramientas: **construí** el dominio (OUs, usuarios,
+  grupos con modelo AGDLP, GPOs), lo **saboteé** introduciendo fallos reales y luego lo **ataqué**.
+  Para explotar bien un entorno hay que entender cómo está hecho por dentro.
+- **Cadena de ataque completa, manual y compatible con OSCP** — de **cero credenciales** a
+  **Domain Admin** y **DCSync** (krbtgt + Administrator). Sin Metasploit.
+- **Cada paso incluye cómo se arregla y cómo se detecta** (p. ej. Event ID 4780 / 5136) — no solo
+  el exploit, también la mirada defensiva.
+- **Leer los errores en contexto.** El ataque falló en un paso porque el dominio se defendió solo
+  (AdminSDHolder / SDProp). Entender *por qué* y ganar la carrera fue la parte que más enseña.
+- **Despliegue endurecido** — el sitio corre en contenedor non-root, read-only, sin puertos
+  expuestos, detrás de un túnel de Cloudflare.
 
-**[▶ How AD works inside](https://ad-lab.jorgearmandoescobar.com/fundamentos.html)** — nobody
-attacks anything. It follows one user from logon to opening a share and breaks down Kerberos (KDC,
-AS/TGS/AP exchanges, TGT, service tickets, PAC), AGDLP, the access check, ACL inheritance and
-AdminSDHolder/SDProp, linking each mechanism to the attack step that abuses it. Terminal output is
-reconstructed and `FS01` is illustrative (the `DL_FS01_*` groups exist in the lab, the server does
-not). Source: [`fundamentos.html`](fundamentos.html).
+---
 
-**[▶ Watch the attack replay](https://ad-lab.jorgearmandoescobar.com/ataque.html)** — an
-animated, step-by-step reproduction of the Phase 3 chain (domain graph + terminal + Kerberos
-message breakdown), with *why it works*, *how to fix it* and *how to detect it* for every step.
-It is a replay of the real attack on this lab, not a live AD in the browser; terminal output
-is reconstructed from the writeup with hashes redacted. Source: [`ataque.html`](ataque.html).
+## La cadena de ataque
 
-Both animated pages share one stylesheet and one playback engine
-([`assets/lab.css`](assets/lab.css), [`assets/engine.js`](assets/engine.js)); each page only holds
-its own data (nodes, info cards, scenes) and drawing code. No build step, no dependencies; content
-in Spanish.
+De una lista de usuarios y nada más, hasta control total del dominio:
 
-### Deployment (VPS + embedded Cloudflare Tunnel)
+| # | Técnica | Resultado | Cómo se arregla / detecta |
+|---|---------|-----------|---------------------------|
+| 1 | **AS-REP Roasting** | `piotr.wisniewski` crackeado | exigir pre-auth Kerberos · Event 4768 |
+| 2 | **Kerberoasting** | `svc_sql` crackeado | contraseñas largas en cuentas de servicio (gMSA) · Event 4769 |
+| 3 | **Abuso de ACL** (ForceChangePassword → GenericAll) | `robert` → Domain Admins | revisar ACLs con BloodHound · Event 4780 / 5136 |
+| 4 | **DCSync** | volcado de krbtgt + Administrator | restringir el derecho de replicación (DRSUAPI) |
+| 5 | **BloodHound** (post-mortem) | análisis de rutas + lección de timing | snapshot antes de explotar, no después |
 
-In production the stack ships as **two containers**: the static site (`nginx`, non-root,
-read-only) on an **internal-only network** with no published ports, and a dedicated
-`cloudflared` tunnel that is the only service with internet egress. Nothing is exposed on
-the host; traffic arrives as `Cloudflare → tunnel → http://web:8080`.
+> Toda la cadena, con comandos y output, en **[`docs/phase3-attack.md`](docs/phase3-attack.md)**.
+
+---
+
+## El momento que más enseña: el dominio se defendió solo
+
+En el paso 3, añadir a `robert` a *Domain Admins* devolvió `ACCESS_DENIED`. No era un comando mal
+escrito: **AdminSDHolder / SDProp** había restaurado la ACL del grupo protegido unos minutos antes,
+borrando el permiso que yo había plantado. La solución no fue reintentar a ciegas, sino entender el
+mecanismo y **ganar la carrera** (replantar la ACL y ejecutar dentro de la ventana de ~60 min antes
+de que SDProp la revierta otra vez).
+
+![El ataque: paso de abuso de ACL con ACCESS_DENIED por SDProp](docs/screenshots/02-ataque-sdprop-grafo.png)
+
+---
+
+## Cómo funciona AD por dentro
+
+Una de las páginas del sitio no ataca nada: sigue a un usuario normal desde que escribe su
+contraseña hasta que abre una carpeta, y desglosa Kerberos (AS/TGS/AP, TGT, PAC), el modelo AGDLP,
+la comprobación de acceso, la herencia de ACLs y AdminSDHolder/SDProp — enlazando cada mecanismo con
+el paso del ataque que lo abusa.
+
+![Fundamentos de AD: modelo AGDLP](docs/screenshots/04-fundamentos-agdlp.png)
+
+---
+
+## El sitio en vivo
+
+Tres páginas pensadas como un blog, para entender el laboratorio sin montar nada:
+
+- **[▶ El ataque (replay animado)](https://ad-lab.jorgearmandoescobar.com/ataque.html)** —
+  reproducción paso a paso de la cadena (grafo del dominio + terminal + mensajes Kerberos), con
+  *por qué funciona*, *cómo se arregla* y *cómo se detecta* en cada paso.
+- **[▶ Cómo funciona AD por dentro](https://ad-lab.jorgearmandoescobar.com/fundamentos.html)** —
+  Kerberos, AGDLP, comprobación de acceso y AdminSDHolder/SDProp, sin atacar nada.
+- **[▶ Explorador del dominio](https://ad-lab.jorgearmandoescobar.com/)** — la estructura de
+  `nordwind.local`.
+
+> El output de terminal está reconstruido a partir de los writeups, con los hashes redactados.
+> Es un *replay*, no un AD en vivo en el navegador. Contenido en español.
+
+---
+
+## Escenario
+
+**Nordwind Logistics**, empresa de logística ficticia. Dominio realista (`nordwind.local`) con su
+estructura de OUs, usuarios, grupos (**modelo AGDLP**) y GPOs.
+
+## Las 3 fases
+
+| Fase | Qué | Estado |
+|------|-----|--------|
+| 1. **Construir** | Levantar un AD limpio (DC + cliente) entendiendo cada paso | ✅ |
+| 2. **Sabotear** | Introducir fallos a propósito (SPN, AS-REP, ACLs) | ✅ |
+| 3. **Atacar** | Enumeración y explotación (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ✅ |
+
+## Stack
+
+- **Hipervisor:** VirtualBox 7 (red interna aislada `NordwindLAN`)
+- **DC01:** Windows Server 2022 Standard (AD DS, DNS, DHCP) — `192.168.10.10`
+- **CL01:** Windows 11 Enterprise — cliente del dominio
+- **Automatización:** PowerShell 5.1
+- **Herramientas de ataque:** nmap, impacket (GetNPUsers, GetUserSPNs, secretsdump), netexec,
+  hashcat, Samba `net rpc`, BloodHound — todo manual, sin Metasploit.
+
+## Documentación
+
+- [`docs/build-log.md`](docs/build-log.md) — Fase 1: construcción paso a paso
+- [`docs/phase2-sabotage.md`](docs/phase2-sabotage.md) — Fase 2: los fallos plantados
+- [`docs/phase3-attack.md`](docs/phase3-attack.md) — Fase 3: cadena completa, cero credenciales → Domain Admin → DCSync
+- [`docs/ad-from-the-attacker-side.md`](docs/ad-from-the-attacker-side.md) — walkthrough de aprendizaje: entender AD desde el lado ofensivo
+- [`scripts/`](scripts/) — scripts de construcción, sabotaje y `reset-to-clean.ps1` para rearmar el lab
+- [`diagrams/`](diagrams/) — visuales interactivos del dominio (abrir en el navegador)
+
+---
+
+<details>
+<summary><b>Despliegue (VPS + túnel de Cloudflare embebido)</b></summary>
+
+En producción el stack son **dos contenedores**: el sitio estático (`nginx`, non-root, read-only) en
+una **red interna sin puertos publicados**, y un `cloudflared` dedicado que es el único con salida a
+internet. Nada queda expuesto en el host; el tráfico llega como `Cloudflare → túnel → http://web:8080`.
 
 ```bash
-# one-time: create a project-dedicated tunnel in Cloudflare Zero Trust,
-# route ad-lab.jorgearmandoescobar.com → http://web:8080, and store its token:
+# una vez: crear un túnel dedicado en Cloudflare Zero Trust,
+# enrutar ad-lab.jorgearmandoescobar.com → http://web:8080 y guardar su token:
 mkdir -p secrets && chmod 700 secrets
 printf '%s' '<TUNNEL_TOKEN>' > secrets/tunnel_token && chmod 444 secrets/tunnel_token
 
 docker compose up -d --build   # web + cloudflared
-docker compose down            # stop and remove
+docker compose down            # parar y eliminar
 ```
 
-`secrets/` is git- and docker-ignored. See [`compose.yaml`](compose.yaml) for the full
-hardening (OWASP Docker Top 10: dropped caps, no-new-privileges, mem/cpu/pids limits,
-pinned image digest, token via file secret).
+`secrets/` está ignorado por git y por docker. Ver [`compose.yaml`](compose.yaml) para todo el
+endurecimiento (OWASP Docker Top 10: caps eliminadas, no-new-privileges, límites de mem/cpu/pids,
+digest de imagen fijado, token por file secret).
 
-### Local preview (no tunnel)
-
-To just see the site without a tunnel, build and run the web image directly:
+**Vista local (sin túnel):**
 
 ```bash
 docker build -t nordwind-web .
 docker run --rm -p 127.0.0.1:8083:8080 nordwind-web   # → http://127.0.0.1:8083
 ```
 
-Only the static site is containerized. The AD lab itself (Windows Server DC + Windows 11
-client) runs in VirtualBox, see [Stack](#stack).
+Solo el sitio estático está contenedorizado. El laboratorio AD (DC Windows Server + cliente
+Windows 11) corre en VirtualBox.
 
-## Scenario
-
-**Nordwind Logistics** — a fictional logistics company. A realistic domain environment
-(`nordwind.local`) with its OU structure, users, groups (**AGDLP** model) and GPOs.
-
-## The 3 phases
-
-| Phase | What | Status |
-|-------|------|--------|
-| 1. **Build** | Stand up a clean AD (DC + client), understanding every step | ✅ Done |
-| 2. **Sabotage** | Deliberately introduce misconfigurations (SPN, AS-REP, ACLs) | ✅ Done |
-| 3. **Attack** | Enumeration and exploitation (Kerberoasting, AS-REP, BloodHound → Domain Admin) | ✅ Done |
-
-> **Outcome:** starting from **zero credentials**, the attack chain reaches **Domain Admin**
-> and a full **DCSync** (krbtgt + Administrator), using only manual, OSCP-friendly tooling —
-> no Metasploit. The whole path is written up in [`docs/phase3-attack.md`](docs/phase3-attack.md).
-
-## Stack
-
-- **Hypervisor:** VirtualBox 7 (isolated internal network `NordwindLAN`)
-- **DC01:** Windows Server 2022 Standard (AD DS, DNS, DHCP) — `192.168.10.10`
-- **CL01:** Windows 11 Enterprise — domain client
-- **Automation:** PowerShell 5.1
-
-## Documentation
-
-- [`docs/build-log.md`](docs/build-log.md) — Phase 1: step-by-step build log
-- [`scripts/build/`](scripts/build/) — provisioning scripts to stand up the clean domain (+ `reset-to-clean.ps1` to re-arm the lab after an attack). See its [README](scripts/build/README.md) for run order and rationale.
-- [`docs/phase2-sabotage.md`](docs/phase2-sabotage.md) — Phase 2: the planted misconfigurations (+ sabotage scripts in [`scripts/`](scripts/))
-- [`docs/phase3-attack.md`](docs/phase3-attack.md) — Phase 3: full attack chain, zero credentials → Domain Admin → DCSync
-- [`docs/ad-from-the-attacker-side.md`](docs/ad-from-the-attacker-side.md) — **learning walkthrough**: understand AD from the pentest side (build → break → understand), built on this lab
-- [`diagrams/`](diagrams/) — interactive HTML visuals of the domain (open in a browser)
-
-> The interactive visuals are written in Spanish (personal study material); an English
-> translation is pending.
+</details>
 
 ---
 
-## Credits
+## Créditos
 
-The infrastructure base — fictional company design, AGDLP structure and the
-provisioning scripts in [`scripts/build/`](scripts/build/) (`01`–`05` + `employees.csv`) —
-is from **Maciej Stawowy's lab**
+La base de infraestructura — diseño de la empresa ficticia, estructura AGDLP y los scripts de
+aprovisionamiento en [`scripts/build/`](scripts/build/) (`01`–`05` + `employees.csv`) — es del
+laboratorio de **Maciej Stawowy**
 ([maciej-stawowy/active-directory-lab](https://github.com/maciej-stawowy/active-directory-lab),
-MIT license), vendored unmodified with attribution preserved.
+licencia MIT), incluido sin modificar y con la atribución preservada.
 
-The offensive layer is my own: the Phase 2 sabotage scripts, the Phase 3 attack chain
-and documentation, and `scripts/build/reset-to-clean.ps1` (re-arming the lab after an
-attack — no upstream equivalent).
+La capa ofensiva es mía: los scripts de sabotaje de la Fase 2, la cadena de ataque y documentación
+de la Fase 3, el sitio web interactivo, y `scripts/build/reset-to-clean.ps1` (rearmar el lab tras un
+ataque, sin equivalente upstream).
